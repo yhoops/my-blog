@@ -12,6 +12,10 @@ interface PostPayload {
   slug: string;
   title: string;
   description?: string;
+  summary?: string;
+  highlights?: string[];
+  projectHighlights?: string[];
+  contextNote?: string;
   date?: string;
   kind?: "writing" | "project";
   tags?: string[];
@@ -29,6 +33,10 @@ function buildMarkdown(p: PostPayload): string {
   const fm: string[] = ["---"];
   fm.push(`title: ${yaml(p.title)}`);
   if (p.description) fm.push(`description: ${yaml(p.description)}`);
+  if (p.summary) fm.push(`summary: ${yaml(p.summary)}`);
+  if (p.highlights && p.highlights.length) fm.push(`highlights: [${p.highlights.map(yaml).join(", ")}]`);
+  if (p.projectHighlights && p.projectHighlights.length) fm.push(`projectHighlights: [${p.projectHighlights.map(yaml).join(", ")}]`);
+  if (p.contextNote) fm.push(`contextNote: ${yaml(p.contextNote)}`);
   fm.push(`date: ${p.date || new Date().toISOString().slice(0, 10)}`);
   fm.push(`kind: ${p.kind || "writing"}`);
   if (p.tags && p.tags.length) fm.push(`tags: [${p.tags.map(yaml).join(", ")}]`);

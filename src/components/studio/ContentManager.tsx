@@ -5,6 +5,10 @@ interface PostItem {
   slug: string;
   title: string;
   description?: string;
+  summary?: string;
+  highlights?: string[];
+  projectHighlights?: string[];
+  contextNote?: string;
   date?: string;
   kind?: "writing" | "project";
   tags?: string[];
@@ -29,6 +33,10 @@ const EMPTY: PostItem & { body: string } = {
   slug: "",
   title: "",
   description: "",
+  summary: "",
+  highlights: [],
+  projectHighlights: [],
+  contextNote: "",
   date: new Date().toISOString().slice(0, 10),
   kind: "writing",
   tags: [],
@@ -109,6 +117,8 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
         ...editing,
         folder: selectedFolder,
         tags: normalizeTags(editing.tags),
+        highlights: normalizeLines(editing.highlights),
+        projectHighlights: normalizeLines(editing.projectHighlights),
       }),
     });
     const data = (await res.json()) as { ok: boolean; error?: string };
@@ -334,6 +344,37 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
             </section>
 
             <section className="glass-card">
+              <label>右侧语境栏</label>
+              <textarea
+                className="ghost-input meta-summary"
+                value={editing.summary || ""}
+                placeholder="语境栏摘要；留空时使用文章描述"
+                onChange={(e) => set("summary", e.target.value)}
+              />
+              {editing.kind === "project" ? (
+                <textarea
+                  className="ghost-input meta-summary"
+                  value={(editing.projectHighlights ?? []).join("\n")}
+                  placeholder="项目亮点，每行一条，最多 3 条"
+                  onChange={(e) => set("projectHighlights", splitLines(e.target.value))}
+                />
+              ) : (
+                <textarea
+                  className="ghost-input meta-summary"
+                  value={(editing.highlights ?? []).join("\n")}
+                  placeholder="关键点，每行一条，最多 3 条"
+                  onChange={(e) => set("highlights", splitLines(e.target.value))}
+                />
+              )}
+              <textarea
+                className="ghost-input meta-summary"
+                value={editing.contextNote || ""}
+                placeholder="补充语境，例如写作背景或项目约束"
+                onChange={(e) => set("contextNote", e.target.value)}
+              />
+            </section>
+
+            <section className="glass-card">
               <div className="card-headline">
                 <label>图片管理</label>
                 <button className="link-button">压缩工具</button>
@@ -402,6 +443,14 @@ function toEditablePost(post: PostItem): PostItem & { body: string } {
 function normalizeTags(tags: PostItem["tags"]): string[] {
   if (Array.isArray(tags)) return tags;
   return String(tags || "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function splitLines(value: string): string[] {
+  return value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).slice(0, 3);
+}
+
+function normalizeLines(value: string[] | undefined): string[] {
+  return (value ?? []).map((s) => s.trim()).filter(Boolean).slice(0, 3);
 }
 
 function postFolder(post: PostItem): string {

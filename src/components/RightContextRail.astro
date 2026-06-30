@@ -1,0 +1,273 @@
+---
+import type { CollectionEntry } from "astro:content"
+import { formatDate } from "../lib/posts"
+
+interface Heading {
+  depth: number
+  slug: string
+  text: string
+}
+
+interface Props {
+  post: CollectionEntry<"posts">
+  headings?: Heading[]
+}
+
+const { post, headings = [] } = Astro.props
+const data = post.data
+const isProject = data.kind === "project"
+const body = (post as { body?: string }).body ?? ""
+const summary = data.summary || data.description
+const highlights = (isProject ? data.projectHighlights : data.highlights).slice(0, 3)
+const outline = railOutline(headings)
+const readingMinutes = estimateReadingMinutes(body)
+const tags = data.tags.slice(0, 4)
+
+function estimateReadingMinutes(markdown: string): number {
+  const withoutCode = markdown.replace(/```[\s\S]*?```/g, " ")
+  const cjk = withoutCode.match(/[\u4e00-\u9fff]/g)?.length ?? 0
+  const latin = withoutCode.match(/[A-Za-z0-9]+/g)?.length ?? 0
+  return Math.max(1, Math.ceil((cjk + latin) / 350))
+}
+
+function railOutline(items: Heading[]): Heading[] {
+  const secondLevel = items.filter((item) => item.depth === 2)
+  const source = secondLevel.length >= 3 ? secondLevel : items.filter((item) => item.depth === 2 || item.depth === 3)
+  return source.slice(0, 6)
+}
+---
+
+<aside class="right-context-rail" data-right-context-rail data-reading-rail aria-label="页面语境预览">
+  <div class="rail-card">
+    <header class="rail-head">
+      <span>{isProject ? "项目预览" : "阅读预览"}</span>
+      <strong>{readingMinutes} 分钟</strong>
+    </header>
+
+    {summary && (
+      <section class="rail-section">
+        <h2>{isProject ? "项目简介" : "这篇讲什么"}</h2>
+        <p>{summary}</p>
+      </section>
+    )}
+
+    <section class="rail-section meta-grid" aria-label="页面信息">
+      <div>
+        <span>{isProject ? "年份" : "日期"}</span>
+        <strong>{isProject ? data.year || String(data.date.getFullYear()) : formatDate(data.date)}</strong>
+      </div>
+      <div>
+        <span>{isProject ? "角色" : "分类"}</span>
+        <strong>{isProject ? data.role || "项目" : data.category}</strong>
+      </div>
+    </section>
+
+    {tags.length > 0 && (
+      <section class="rail-section">
+        <h2>标签</h2>
+        <div class="tag-list">
+          {tags.map((tag) => <span>{tag}</span>)}
+        </div>
+      </section>
+    )}
+
+    {highlights.length > 0 && (
+      <section class="rail-section">
+        <h2>{isProject ? "项目亮点" : "关键点"}</h2>
+        <ul class="highlight-list">
+          {highlights.map((item) => <li>{item}</li>)}
+        </ul>
+      </section>
+    )}
+
+    {data.contextNote && (
+      <section class="rail-section note">
+        <h2>语境</h2>
+        <p>{data.contextNote}</p>
+      </section>
+    )}
+
+    {outline.length > 0 && (
+      <section class="rail-section">
+        <h2>大纲</h2>
+        <nav class="outline-list" aria-label="文章大纲">
+          {outline.map((item) => (
+            <a class:list={[`depth-${item.depth}`]} href={`#${item.slug}`}>{item.text}</a>
+          ))}
+        </nav>
+      </section>
+    )}
+
+    {isProject && data.url && (
+      <a class="project-link" href={data.url} target="_blank" rel="noopener noreferrer">
+        访问项目
+      </a>
+    )}
+  </div>
+</aside>
+
+<style>
+  .right-context-rail {
+    position: fixed;
+    top: 8rem;
+    right: clamp(1rem, 3vw, 3rem);
+    z-index: 24;
+    width: 280px;
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    line-height: 1.45;
+    transition: opacity 280ms var(--anim-ease);
+  }
+  .rail-card {
+    max-height: calc(100vh - 10rem);
+    overflow: auto;
+    padding: 1rem;
+    border: 1px solid color-mix(in srgb, var(--color-line) 86%, transparent);
+    border-radius: calc(var(--radius) + 14px);
+    background: color-mix(in srgb, var(--color-bg) 91%, transparent);
+    box-shadow: 0 18px 54px rgba(28, 22, 14, 0.1);
+    backdrop-filter: blur(18px);
+    scrollbar-width: thin;
+  }
+  .rail-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-bottom: 0.72rem;
+    border-bottom: 1px solid var(--color-line);
+    color: var(--color-faint);
+  }
+  .rail-head span {
+    color: var(--color-muted);
+    font-weight: 700;
+  }
+  .rail-head strong {
+    color: var(--color-ink);
+    font-weight: 700;
+  }
+  .rail-section {
+    padding: 0.9rem 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-line) 72%, transparent);
+  }
+  .rail-section:last-child {
+    border-bottom: 0;
+  }
+  .rail-section h2 {
+    margin: 0 0 0.45rem;
+    font-family: var(--font-body);
+    font-size: 0.76rem;
+    font-weight: 750;
+    color: var(--color-ink);
+    letter-spacing: 0;
+  }
+  .rail-section p {
+    margin: 0;
+    color: var(--color-muted);
+  }
+  .meta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.7rem;
+  }
+  .meta-grid span {
+    display: block;
+    margin-bottom: 0.2rem;
+    color: var(--color-faint);
+  }
+  .meta-grid strong {
+    display: block;
+    color: var(--color-ink);
+    font-size: 0.82rem;
+    font-weight: 700;
+  }
+  .tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .tag-list span {
+    padding: 0.16rem 0.4rem;
+    border-radius: calc(var(--radius) + 6px);
+    background: var(--color-surface);
+    color: var(--color-muted);
+  }
+  .highlight-list {
+    display: grid;
+    gap: 0.42rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .highlight-list li {
+    color: var(--color-muted);
+  }
+  .highlight-list li::before {
+    content: "";
+    display: inline-block;
+    width: 0.28rem;
+    height: 0.28rem;
+    margin-right: 0.4rem;
+    border-radius: 999px;
+    background: var(--color-accent);
+    vertical-align: 0.12em;
+  }
+  .note {
+    color: var(--color-muted);
+  }
+  .outline-list {
+    display: grid;
+    gap: 0.36rem;
+  }
+  .outline-list a {
+    display: block;
+    color: var(--color-muted);
+    transition: color 160ms ease, transform 160ms ease;
+  }
+  .outline-list a:hover {
+    color: var(--color-accent);
+    transform: translateX(2px);
+  }
+  .outline-list .depth-3 {
+    padding-left: 0.7rem;
+    color: var(--color-faint);
+  }
+  .project-link {
+    display: block;
+    margin-top: 0.9rem;
+    padding: 0.52rem 0.7rem;
+    border-radius: calc(var(--radius) + 8px);
+    background: var(--color-ink);
+    color: var(--color-bg);
+    text-align: center;
+    font-weight: 700;
+  }
+  :global(html.reading-mode) .right-context-rail {
+    opacity: 0;
+  }
+  :global(html.reading-mode.rail-hover) .right-context-rail,
+  :global(html.reading-mode) .right-context-rail:focus-within {
+    opacity: 1;
+  }
+  @media (max-width: 1340px) {
+    .right-context-rail {
+      display: none;
+    }
+  }
+</style>
+
+<script is:inline>
+  const railRoot = document.documentElement
+  const readingRails = document.querySelectorAll("[data-reading-rail]")
+  const syncRailHover = () => {
+    const active = Array.from(readingRails).some((rail) => rail.matches(":hover") || rail.contains(document.activeElement))
+    railRoot.classList.toggle("rail-hover", active)
+  }
+  readingRails.forEach((rail) => {
+    rail.addEventListener("pointerenter", syncRailHover)
+    rail.addEventListener("pointerleave", () => window.setTimeout(syncRailHover, 40))
+    rail.addEventListener("focusin", syncRailHover)
+    rail.addEventListener("focusout", () => window.setTimeout(syncRailHover, 40))
+  })
+</script>

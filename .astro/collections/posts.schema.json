@@ -11,6 +11,26 @@
           "type": "string",
           "default": ""
         },
+        "summary": {
+          "type": "string"
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "projectHighlights": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "contextNote": {
+          "type": "string"
+        },
         "date": {
           "anyOf": [
             {

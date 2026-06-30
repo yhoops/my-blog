@@ -83,7 +83,7 @@ function entries(node: TreeNode): RenderNode[] {
 }
 ---
 
-<aside class="knowledge-dock" data-knowledge-dock>
+<aside class="knowledge-dock" data-knowledge-dock data-reading-rail>
   <div class="dock-card">
     <header class="dock-head">
       <h2>{nav.title}</h2>
@@ -308,7 +308,8 @@ function entries(node: TreeNode): RenderNode[] {
     opacity: 0;
   }
   :global(html.reading-mode) .knowledge-dock:hover,
-  :global(html.reading-mode) .knowledge-dock:focus-within {
+  :global(html.reading-mode) .knowledge-dock:focus-within,
+  :global(html.reading-mode.rail-hover) .knowledge-dock {
     opacity: 1;
   }
   :global(html.reading-mode) .dock-card {
