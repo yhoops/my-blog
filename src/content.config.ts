@@ -9,6 +9,7 @@ const posts = defineCollection({
     date: z.coerce.date(),
     tags: z.array(z.string()).default([]),
     category: z.string().default("未分类"),
+    folder: z.string().default(""),
     kind: z.enum(["writing", "project"]).default("writing"),
     draft: z.boolean().default(false),
     cover: z.string().optional(),

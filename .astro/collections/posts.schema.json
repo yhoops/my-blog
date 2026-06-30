@@ -38,6 +38,10 @@
           "type": "string",
           "default": "未分类"
         },
+        "folder": {
+          "type": "string",
+          "default": ""
+        },
         "kind": {
           "type": "string",
           "enum": [

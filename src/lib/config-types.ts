@@ -55,6 +55,25 @@ export interface NavLink {
   href: string
 }
 
+export interface ContentFolder {
+  id: string
+  name: string
+  parentId?: string
+  description?: string
+}
+
+export interface ContentConfig {
+  categories: string[]
+  folders: ContentFolder[]
+  floatingNav: {
+    title: string
+    searchPlaceholder: string
+    writingLabel: string
+    workLabel: string
+    readingLabel: string
+  }
+}
+
 export interface SiteConfig {
   meta: {
     title: string
@@ -64,6 +83,7 @@ export interface SiteConfig {
   }
   nav: NavLink[]
   social: { label: string; href: string }[]
+  content?: ContentConfig
   theme: ThemeConfig
   // ordered list of homepage blocks (drag to reorder in admin)
   blocks: Block[]
@@ -85,6 +105,7 @@ export interface PostFrontmatter {
   date: string
   tags: string[]
   category?: string
+  folder?: string
   kind: "writing" | "project"
   draft: boolean
   cover?: string

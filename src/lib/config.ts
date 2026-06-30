@@ -1,8 +1,31 @@
 import siteData from "../content/site.json"
-import type { SiteConfig, ThemeConfig } from "./config-types"
+import type { ContentConfig, SiteConfig, ThemeConfig } from "./config-types"
+
+const DEFAULT_CONTENT: ContentConfig = {
+  categories: [],
+  folders: [],
+  floatingNav: {
+    title: "知识碎片",
+    searchPlaceholder: "Search",
+    writingLabel: "随笔导航",
+    workLabel: "作品导航",
+    readingLabel: "阅读模式",
+  },
+}
 
 export function getSiteConfig(): SiteConfig {
-  return siteData as SiteConfig
+  const config = siteData as SiteConfig
+  return {
+    ...config,
+    content: {
+      ...DEFAULT_CONTENT,
+      ...(config.content ?? {}),
+      floatingNav: {
+        ...DEFAULT_CONTENT.floatingNav,
+        ...(config.content?.floatingNav ?? {}),
+      },
+    },
+  }
 }
 
 // Convert theme tokens into an inline `style` string of CSS custom properties.

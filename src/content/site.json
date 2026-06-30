@@ -112,5 +112,29 @@
       }
     }
   ],
-  "presets": []
+  "presets": [],
+  "content": {
+    "categories": [
+      "大数据",
+      "分布式",
+      "可观测",
+      "数据结构与算法",
+      "译书",
+      "云原生",
+      "中间件",
+      "Golang",
+      "Java",
+      "Linux",
+      "LLM",
+      "SRE"
+    ],
+    "folders": [],
+    "floatingNav": {
+      "title": "汀的知识碎片",
+      "searchPlaceholder": "Search",
+      "writingLabel": "随笔导航",
+      "workLabel": "作品导航",
+      "readingLabel": "阅读模式"
+    }
+  }
 }

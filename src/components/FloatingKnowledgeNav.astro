@@ -1,0 +1,328 @@
+---
+import type { CollectionEntry } from "astro:content"
+import { getSiteConfig } from "../lib/config"
+
+interface Props {
+  writing: CollectionEntry<"posts">[]
+  projects?: CollectionEntry<"posts">[]
+  activeSlug?: string
+  mode?: "writing" | "work"
+}
+
+const { writing, projects = [], activeSlug = "", mode = "writing" } = Astro.props
+const site = getSiteConfig()
+const nav = site.content!.floatingNav
+
+const categoryMap = new Map<string, CollectionEntry<"posts">[]>()
+for (const post of writing) {
+  const category = post.data.category || "未分类"
+  categoryMap.set(category, [...(categoryMap.get(category) ?? []), post])
+}
+
+const folderMap = new Map<string, CollectionEntry<"posts">[]>()
+for (const post of writing) {
+  if (!post.data.folder) continue
+  folderMap.set(post.data.folder, [...(folderMap.get(post.data.folder) ?? []), post])
+}
+
+const folders = [...folderMap.entries()].sort(([a], [b]) => a.localeCompare(b))
+const categories = [...categoryMap.entries()].sort(([a], [b]) => a.localeCompare(b))
+const projectList = projects.slice(0, 12)
+---
+
+<aside class="knowledge-dock" data-knowledge-dock>
+  <div class="dock-card">
+    <h2>{nav.title}</h2>
+    <div class="dock-line"></div>
+
+    <div class="dock-actions" aria-label="显示设置">
+      <label class="dock-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m1.35-5.65a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" /></svg>
+        <input type="search" placeholder={nav.searchPlaceholder} data-knowledge-search />
+      </label>
+      <button class="icon-button" data-theme-toggle aria-label="切换深色或浅色模式">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2m0 14v2M5.64 5.64l1.42 1.42m9.88 9.88 1.42 1.42M3 12h2m14 0h2M5.64 18.36l1.42-1.42m9.88-9.88 1.42-1.42M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z" /></svg>
+      </button>
+      <button class="icon-button reading-trigger" data-reading-toggle aria-label={nav.readingLabel}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Zm0 0A2.5 2.5 0 0 1 6.5 8H20" /></svg>
+        <span>{nav.readingLabel}</span>
+      </button>
+    </div>
+
+    <details class="nav-group" open={mode === "writing"}>
+      <summary>{nav.writingLabel}</summary>
+      <div class="nav-stack">
+        {folders.length > 0 && (
+          <details class="nav-folder" open>
+            <summary>文件夹</summary>
+            <div class="nav-stack">
+              {folders.map(([folder, posts]) => (
+                <details class="nav-folder">
+                  <summary>{folder}</summary>
+                  <ul>
+                    {posts.map((post) => (
+                      <li data-search-item={`${post.data.title} ${post.data.description} ${post.data.tags.join(" ")}`}>
+                        <a class:list={{ active: post.id === activeSlug }} href={`/writing/${post.id}`}>{post.data.title}</a>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ))}
+            </div>
+          </details>
+        )}
+        {categories.map(([category, posts]) => (
+          <details class="nav-folder">
+            <summary>{category}</summary>
+            <ul>
+              {posts.map((post) => (
+                <li data-search-item={`${post.data.title} ${post.data.description} ${post.data.tags.join(" ")}`}>
+                  <a class:list={{ active: post.id === activeSlug }} href={`/writing/${post.id}`}>{post.data.title}</a>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ))}
+      </div>
+    </details>
+
+    {projectList.length > 0 && (
+      <details class="nav-group" open={mode === "work"}>
+        <summary>{nav.workLabel}</summary>
+        <ul>
+          {projectList.map((project) => (
+            <li data-search-item={`${project.data.title} ${project.data.description} ${project.data.tags.join(" ")}`}>
+              <a class:list={{ active: project.id === activeSlug }} href={`/work/${project.id}`}>{project.data.title}</a>
+            </li>
+          ))}
+        </ul>
+      </details>
+    )}
+  </div>
+  <div class="theme-ripple" data-theme-ripple></div>
+</aside>
+
+<style>
+  .knowledge-dock {
+    position: fixed;
+    left: clamp(1rem, 4vw, 4rem);
+    top: 6rem;
+    z-index: 30;
+    width: 270px;
+    color: var(--color-ink);
+  }
+  .dock-card {
+    background: color-mix(in srgb, var(--color-bg) 86%, transparent);
+    border: 1px solid var(--color-line);
+    border-radius: calc(var(--radius) + 16px);
+    padding: 1.2rem;
+    box-shadow: 0 24px 70px rgba(28, 22, 14, 0.12);
+    backdrop-filter: blur(18px);
+  }
+  .dock-card h2 {
+    font-family: var(--font-body);
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0;
+  }
+  .dock-line {
+    height: 1px;
+    background: var(--color-line);
+    margin: 0.7rem 0 1.35rem;
+  }
+  .dock-actions {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 0.6rem;
+    align-items: center;
+    margin-bottom: 1.35rem;
+  }
+  .dock-search {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    background: var(--color-surface);
+    border-radius: calc(var(--radius) + 8px);
+    padding: 0.55rem 0.7rem;
+  }
+  .dock-search svg,
+  .icon-button svg {
+    width: 1.15rem;
+    height: 1.15rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .dock-search input {
+    min-width: 0;
+    width: 100%;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--color-ink);
+    font: inherit;
+  }
+  .icon-button {
+    width: 2.25rem;
+    height: 2.25rem;
+    border: 0;
+    background: transparent;
+    color: var(--color-ink);
+    display: inline-grid;
+    place-items: center;
+    cursor: pointer;
+    position: relative;
+  }
+  .reading-trigger span {
+    position: absolute;
+    left: 50%;
+    top: calc(100% + 0.25rem);
+    transform: translate(-50%, -0.3rem);
+    opacity: 0;
+    pointer-events: none;
+    white-space: nowrap;
+    background: var(--color-ink);
+    color: var(--color-bg);
+    border-radius: 999px;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.72rem;
+    transition: opacity 260ms var(--anim-ease), transform 260ms var(--anim-ease);
+  }
+  .knowledge-dock:hover .reading-trigger span {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  .nav-group,
+  .nav-folder {
+    margin-top: 0.35rem;
+  }
+  summary {
+    cursor: pointer;
+    list-style: none;
+    font-weight: 700;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  summary::before {
+    content: "›";
+    display: inline-block;
+    color: var(--color-accent);
+    margin-right: 0.45rem;
+    transition: transform 180ms ease;
+  }
+  details[open] > summary::before {
+    transform: rotate(90deg);
+  }
+  .nav-stack {
+    margin-left: 0.45rem;
+  }
+  ul {
+    list-style: none;
+    margin: 0.35rem 0 0.75rem 1rem;
+    padding: 0;
+  }
+  li {
+    margin: 0.28rem 0;
+  }
+  a {
+    display: block;
+    color: var(--color-muted);
+    font-size: 0.82rem;
+    line-height: 1.35;
+    transition: color 180ms ease, transform 180ms ease;
+  }
+  a:hover,
+  a.active {
+    color: var(--color-accent);
+    transform: translateX(2px);
+  }
+  .theme-ripple {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--ripple-color, #16130f);
+    clip-path: circle(0 at var(--ripple-x, 0) var(--ripple-y, 0));
+    transition: clip-path 720ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .theme-ripple.spread {
+    clip-path: circle(150vmax at var(--ripple-x, 0) var(--ripple-y, 0));
+  }
+  html.theme-dark {
+    --color-bg: #14110d;
+    --color-surface: #201b15;
+    --color-ink: #f2eadc;
+    --color-muted: #b7ab98;
+    --color-faint: #7f7567;
+    --color-line: #3a3026;
+    --color-accent-soft: #4b3529;
+  }
+  html.reading-mode main {
+    font-size: 1.08em;
+  }
+  html.reading-mode .prose {
+    max-width: min(48rem, calc(100vw - 2rem));
+    line-height: 1.9;
+  }
+  @media (max-width: 1180px) {
+    .knowledge-dock {
+      position: sticky;
+      top: 0.75rem;
+      width: auto;
+      margin: 1rem;
+    }
+  }
+  @media (max-width: 720px) {
+    .dock-actions {
+      grid-template-columns: 1fr auto auto;
+    }
+    .dock-card {
+      padding: 0.9rem;
+    }
+  }
+</style>
+
+<script>
+  const dock = document.querySelector("[data-knowledge-dock]")
+  const search = dock?.querySelector<HTMLInputElement>("[data-knowledge-search]")
+  const themeButton = dock?.querySelector<HTMLButtonElement>("[data-theme-toggle]")
+  const readingButton = dock?.querySelector<HTMLButtonElement>("[data-reading-toggle]")
+  const ripple = dock?.querySelector<HTMLElement>("[data-theme-ripple]")
+
+  const savedTheme = localStorage.getItem("site-theme")
+  if (savedTheme === "dark") document.documentElement.classList.add("theme-dark")
+  if (localStorage.getItem("reading-mode") === "on") document.documentElement.classList.add("reading-mode")
+
+  search?.addEventListener("input", () => {
+    const q = search.value.trim().toLowerCase()
+    dock?.querySelectorAll<HTMLElement>("[data-search-item]").forEach((item) => {
+      const text = item.dataset.searchItem?.toLowerCase() ?? ""
+      item.hidden = Boolean(q && !text.includes(q))
+    })
+  })
+
+  themeButton?.addEventListener("click", () => {
+    const rect = themeButton.getBoundingClientRect()
+    const x = `${rect.left + rect.width / 2}px`
+    const y = `${rect.top + rect.height / 2}px`
+    const nextDark = !document.documentElement.classList.contains("theme-dark")
+    ripple?.style.setProperty("--ripple-x", x)
+    ripple?.style.setProperty("--ripple-y", y)
+    ripple?.style.setProperty("--ripple-color", nextDark ? "#14110d" : "var(--color-bg)")
+    ripple?.classList.add("spread")
+    window.setTimeout(() => {
+      document.documentElement.classList.toggle("theme-dark", nextDark)
+      localStorage.setItem("site-theme", nextDark ? "dark" : "light")
+      ripple?.classList.remove("spread")
+    }, 360)
+  })
+
+  readingButton?.addEventListener("click", () => {
+    const on = !document.documentElement.classList.contains("reading-mode")
+    document.documentElement.classList.toggle("reading-mode", on)
+    localStorage.setItem("reading-mode", on ? "on" : "off")
+  })
+</script>
