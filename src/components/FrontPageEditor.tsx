@@ -278,18 +278,10 @@ export default function FrontPageEditor() {
         </div>
       )}
 
-      {/* global hover styles for drag handle */}
+      {/* hover effect: brighten accent bar on block hover */}
       <style>{`
-        .fp-block-wrap {
-          position: relative;
-          transition: box-shadow 200ms;
-        }
-        .fp-block-wrap:hover .fp-drag-handle {
-          opacity: 1 !important;
-        }
-        .fp-block-wrap:hover {
-          --drag-handle-opacity: 1;
-        }
+        .fp-block-wrap { transition: box-shadow 200ms; }
+        .fp-block-wrap:hover .fp-accent-bar { opacity: 1 !important; }
       `}</style>
     </>
   )
@@ -323,7 +315,7 @@ function SortableBlockItem({
 
   return (
     <div ref={setNodeRef} style={style} className="fp-block-wrap">
-      {/* Drag handle — accent bar on the left */}
+      {/* Drag handle — always visible accent bar + grab icon */}
       <div
         {...attributes}
         {...listeners}
@@ -331,20 +323,46 @@ function SortableBlockItem({
         style={{
           position: "absolute",
           left: 0,
-          top: 4,
-          bottom: 4,
-          width: 4,
-          background: "var(--color-accent)",
-          borderTopRightRadius: 2,
-          borderBottomRightRadius: 2,
+          top: 0,
+          bottom: 0,
+          width: 24,
           cursor: "grab",
-          opacity: 0,
-          transition: "opacity 200ms",
           zIndex: 10,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 3,
         }}
         title="拖拽排序"
-      />
-      {renderBlock(block, posts)}
+      >
+        {/* accent bar */}
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 8,
+            bottom: 8,
+            width: 3,
+            background: "var(--color-accent)",
+            borderRadius: 2,
+            opacity: 0.3,
+            transition: "opacity 200ms",
+          }}
+          className="fp-accent-bar"
+        />
+        {/* three dots */}
+        <svg width="10" height="16" viewBox="0 0 10 16" fill="none" style={{ opacity: 0.35 }}>
+          <circle cx="5" cy="3" r="1.2" fill="var(--color-muted)" />
+          <circle cx="5" cy="8" r="1.2" fill="var(--color-muted)" />
+          <circle cx="5" cy="13" r="1.2" fill="var(--color-muted)" />
+        </svg>
+      </div>
+
+      {/* indent block content to make room for handle */}
+      <div style={{ marginLeft: 24 }}>
+        {renderBlock(block, posts)}
+      </div>
     </div>
   )
 }
