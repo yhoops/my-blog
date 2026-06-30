@@ -301,7 +301,7 @@ function entries(node: TreeNode): RenderNode[] {
   .theme-ripple.spread {
     clip-path: circle(150vmax at var(--ripple-x, 0) var(--ripple-y, 0));
   }
-  html.theme-dark {
+  :global(html.theme-dark) {
     --color-bg: #14110d;
     --color-surface: #201b15;
     --color-ink: #f2eadc;
@@ -310,10 +310,10 @@ function entries(node: TreeNode): RenderNode[] {
     --color-line: #3a3026;
     --color-accent-soft: #4b3529;
   }
-  html.reading-mode main {
+  :global(html.reading-mode main) {
     font-size: 1.08em;
   }
-  html.reading-mode .prose {
+  :global(html.reading-mode .prose) {
     max-width: min(48rem, calc(100vw - 2rem));
     line-height: 1.9;
   }

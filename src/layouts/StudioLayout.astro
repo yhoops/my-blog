@@ -1,16 +1,19 @@
 ---
 import "../styles/global.css";
 import "../styles/studio.css";
+import { getSiteConfig, themeToCssVars } from "../lib/config";
 
 interface Props {
   title?: string;
 }
 
 const { title = "工作室" } = Astro.props;
+const site = getSiteConfig();
+const cssVars = themeToCssVars(site.theme);
 ---
 
 <!doctype html>
-<html lang="zh-CN" class="bg-base">
+<html lang="zh-CN" class="bg-base" style={cssVars}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
