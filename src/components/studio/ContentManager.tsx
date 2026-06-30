@@ -178,9 +178,13 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   }
 
   function preview() {
-    const doc = previewDocument(editing, renderMarkdown(editing.body));
-    const win = window.open("", "_blank", "noopener,noreferrer,width=980,height=820");
-    if (!win) return;
+    const doc = previewDocument(editing, renderMarkdown(editing.body), config);
+    const win = window.open("about:blank", "_blank", "width=980,height=820");
+    if (!win) {
+      setStatus("浏览器阻止了预览窗口，请允许此站点打开弹窗。");
+      return;
+    }
+    win.opener = null;
     win.document.open();
     win.document.write(doc);
     win.document.close();
@@ -634,20 +638,44 @@ function inline(text: string): string {
   return text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>');
 }
 
-function previewDocument(post: PostItem, html: string): string {
+function previewDocument(post: PostItem, html: string, site: SiteConfig | null): string {
+  const theme = site?.theme;
+  const colors = theme?.colors;
+  const fonts = theme?.fonts;
+  const typography = theme?.typography;
+  const bg = colors?.bg || "#f4f1ea";
+  const surface = colors?.surface || "#ece8df";
+  const ink = colors?.ink || "#1a1814";
+  const muted = colors?.muted || "#6f6a60";
+  const accent = colors?.accent || "#b4502e";
+  const line = colors?.line || "#d9d3c7";
+  const headingFont = fonts?.heading || `"Newsreader", Georgia, serif`;
+  const bodyFont = fonts?.body || `"Inter", system-ui, sans-serif`;
+  const baseSize = typography?.baseSize || 18;
+  const measure = typography?.measure || 38;
+  const radius = typography?.radius || 2;
+
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>${escapeHtml(post.title || "预览")}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet" />
   <style>
-    body{margin:0;background:#f4f1ea;color:#1a1814;font:18px/1.75 Georgia,"Source Serif 4",serif}
-    article{max-width:720px;margin:0 auto;padding:72px 24px}
-    h1{font-size:48px;line-height:1.05;margin:0 0 16px;font-weight:500}
-    .meta{color:#7c7468;font:14px/1.5 system-ui,sans-serif;margin-bottom:56px}
-    .prose h2{margin-top:2.2em}.prose blockquote{border-left:2px solid #b4502e;padding-left:1rem;color:#6f6a60}
-    .prose code{background:#ece8df;padding:.1em .35em;border-radius:4px}.prose a{color:#b4502e}
+    :root{--bg:${bg};--surface:${surface};--ink:${ink};--muted:${muted};--accent:${accent};--line:${line};--heading:${headingFont};--body:${bodyFont};--radius:${radius}px}
+    html{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:${baseSize}px;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+    body{margin:0;background:var(--bg);color:var(--ink)}
+    article{max-width:${measure}rem;margin:0 auto;padding:72px 24px}
+    h1,h2,h3{font-family:var(--heading);font-weight:400;color:var(--ink);letter-spacing:0}
+    h1{font-size:clamp(2.2rem,6vw,3.2rem);line-height:1.04;margin:0 0 16px}
+    .meta{color:var(--muted);font:14px/1.5 var(--body);margin-bottom:56px}
+    .prose{line-height:1.7}.prose p,.prose ul,.prose blockquote{margin:1.4em 0}.prose h2{font-size:1.6rem;margin:2.2em 0 .6em}.prose h3{font-size:1.25rem;margin:1.8em 0 .5em}
+    .prose blockquote{border-left:2px solid var(--accent);padding-left:1.2rem;color:var(--muted);font-style:italic}
+    .prose code{background:var(--surface);padding:.1em .35em;border-radius:var(--radius)}.prose a{color:inherit;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--accent)}
+    .prose pre{background:var(--ink);color:var(--bg);padding:1.2rem;border-radius:var(--radius);overflow:auto}
   </style>
 </head>
 <body>
