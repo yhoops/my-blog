@@ -102,12 +102,6 @@
 .textarea-compact {
   min-height: 130px;
 }
-.textarea-visual {
-  min-height: 360px;
-  font-family: Georgia, "Source Serif 4", serif;
-  font-size: 1rem;
-  line-height: 1.75;
-}
 
 .btn {
   display: inline-flex;
@@ -449,7 +443,8 @@ input[type="color"] {
   flex-wrap: wrap;
   margin-bottom: 0.6rem;
 }
-.wysiwyg-preview {
+.wysiwyg-preview,
+.wysiwyg-editor {
   min-height: 360px;
   max-height: 60vh;
   overflow: auto;
@@ -459,6 +454,14 @@ input[type="color"] {
   padding: 1.5rem;
   color: var(--s-text);
   line-height: 1.75;
+}
+.wysiwyg-editor {
+  outline: none;
+  font-family: Georgia, "Source Serif 4", serif;
+  font-size: 1rem;
+}
+.wysiwyg-editor:focus {
+  border-color: var(--s-accent);
 }
 .wysiwyg-preview h1,
 .wysiwyg-preview h2,

@@ -110,7 +110,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
       ) : (
         <>
           <TaxonomyEditor content={content} onSave={saveContent} />
-          <ImportPanel content={content} onImported={load} />
+          <ImportPanel content={content} posts={posts} onImported={load} />
           <Section
             title="随笔"
             items={writing}
@@ -132,6 +132,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
           post={editing}
           githubConfigured={githubConfigured}
           content={content}
+          posts={posts}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -327,7 +328,7 @@ function TaxonomyEditor({
   );
 }
 
-function ImportPanel({ content, onImported }: { content: ContentConfig; onImported: () => void }) {
+function ImportPanel({ content, posts, onImported }: { content: ContentConfig; posts: PostItem[]; onImported: () => void }) {
   const [files, setFiles] = useState<File[]>([]);
   const [kind, setKind] = useState<"writing" | "project">("writing");
   const [category, setCategory] = useState("");
@@ -368,6 +369,7 @@ function ImportPanel({ content, onImported }: { content: ContentConfig; onImport
           category={category}
           folder={folder}
           content={content}
+          posts={posts}
           onKind={setKind}
           onCategory={setCategory}
           onFolder={setFolder}
@@ -388,12 +390,14 @@ function PostEditor({
   post,
   githubConfigured,
   content,
+  posts,
   onClose,
   onSaved,
 }: {
   post: PostItem & { body: string };
   githubConfigured: boolean;
   content: ContentConfig;
+  posts: PostItem[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -463,6 +467,7 @@ function PostEditor({
             category={form.category || ""}
             folder={form.folder || ""}
             content={content}
+            posts={posts}
             onKind={(value) => set("kind", value)}
             onCategory={(value) => set("category", value)}
             onFolder={(value) => set("folder", value)}
@@ -540,10 +545,18 @@ function PostEditor({
 
         {mode === "preview" ? (
           <div className="wysiwyg-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(form.body) }} />
+        ) : mode === "visual" ? (
+          <div
+            className="wysiwyg-editor"
+            contentEditable
+            suppressContentEditableWarning
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(form.body || "从这里开始写作...") }}
+            onInput={(e) => set("body", htmlToMarkdown(e.currentTarget))}
+          />
         ) : (
           <textarea
             id="post-body"
-            className={`textarea ${mode === "visual" ? "textarea-visual" : ""}`}
+            className="textarea"
             value={form.body}
             placeholder="# 标题&#10;&#10;在这里写作..."
             onChange={(e) => set("body", e.target.value)}
@@ -575,6 +588,7 @@ function MetaSelectors({
   category,
   folder,
   content,
+  posts = [],
   onKind,
   onCategory,
   onFolder,
@@ -583,6 +597,7 @@ function MetaSelectors({
   category: string;
   folder: string;
   content: ContentConfig;
+  posts?: PostItem[];
   onKind: (value: "writing" | "project") => void;
   onCategory: (value: string) => void;
   onFolder: (value: string) => void;
@@ -609,7 +624,7 @@ function MetaSelectors({
         <label>文件夹</label>
         <select className="select" value={folder} onChange={(e) => onFolder(e.target.value)}>
           <option value="">不放入文件夹</option>
-          {folderOptions(content.folders).map((option) => (
+          {folderOptions(content.folders, posts).map((option) => (
             <option value={option.path} key={option.path}>
               {option.label}
             </option>
@@ -620,22 +635,36 @@ function MetaSelectors({
   );
 }
 
-function folderOptions(folders: ContentFolder[]) {
+function folderOptions(folders: ContentFolder[], posts: PostItem[] = []) {
   const byParent = new Map<string, ContentFolder[]>();
   for (const folder of folders) {
     const parent = folder.parentId || "";
     byParent.set(parent, [...(byParent.get(parent) ?? []), folder]);
   }
-  const out: { label: string; path: string }[] = [];
+  const map = new Map<string, { label: string; path: string }>();
   function walk(parentId: string, prefix: string, depth: number) {
     for (const folder of byParent.get(parentId) ?? []) {
       const path = [prefix, folder.name].filter(Boolean).join("/");
-      out.push({ label: `${"  ".repeat(depth)}${folder.name}`, path });
+      map.set(path, { label: `${"  ".repeat(depth)}${folder.name}`, path });
       walk(folder.id, path, depth + 1);
     }
   }
   walk("", "", 0);
-  return out;
+
+  for (const post of posts) {
+    const parts = post.slug.split("/").filter(Boolean).slice(0, -1);
+    let prefix = "";
+    for (const [index, part] of parts.entries()) {
+      prefix = [prefix, part].filter(Boolean).join("/");
+      if (!map.has(prefix)) map.set(prefix, { label: `${"  ".repeat(index)}${part}`, path: prefix });
+    }
+    if (post.folder && !map.has(post.folder)) {
+      const depth = post.folder.split("/").filter(Boolean).length - 1;
+      map.set(post.folder, { label: `${"  ".repeat(Math.max(depth, 0))}${post.folder.split("/").at(-1)}`, path: post.folder });
+    }
+  }
+
+  return [...map.values()].sort((a, b) => a.path.localeCompare(b.path));
 }
 
 async function parseMarkdownFile(
@@ -704,4 +733,23 @@ function inline(text: string): string {
   return text
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
     .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>');
+}
+
+function htmlToMarkdown(root: HTMLElement): string {
+  const blocks: string[] = [];
+  for (const node of Array.from(root.childNodes)) {
+    const text = (node.textContent || "").trim();
+    if (!text) continue;
+    if (node instanceof HTMLHeadingElement) {
+      const level = node.tagName === "H1" ? "# " : node.tagName === "H2" ? "## " : "### ";
+      blocks.push(`${level}${text}`);
+    } else if (node instanceof HTMLQuoteElement) {
+      blocks.push(text.split(/\n/).map((line) => `> ${line}`).join("\n"));
+    } else if (node instanceof HTMLUListElement || node instanceof HTMLOListElement) {
+      blocks.push(Array.from(node.querySelectorAll("li")).map((li) => `- ${li.textContent?.trim() ?? ""}`).join("\n"));
+    } else {
+      blocks.push(text);
+    }
+  }
+  return blocks.join("\n\n");
 }

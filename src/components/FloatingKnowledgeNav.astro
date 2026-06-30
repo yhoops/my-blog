@@ -1,6 +1,23 @@
 ---
 import type { CollectionEntry } from "astro:content"
 import { getSiteConfig } from "../lib/config"
+import KnowledgeTreeItem from "./KnowledgeTreeItem.astro"
+
+interface TreeNode {
+  name: string
+  href?: string
+  active?: boolean
+  searchText: string
+  children: Map<string, TreeNode>
+}
+
+interface RenderNode {
+  name: string
+  href?: string
+  active?: boolean
+  searchText: string
+  children: RenderNode[]
+}
 
 interface Props {
   writing: CollectionEntry<"posts">[]
@@ -13,91 +30,96 @@ const { writing, projects = [], activeSlug = "", mode = "writing" } = Astro.prop
 const site = getSiteConfig()
 const nav = site.content!.floatingNav
 
-const categoryMap = new Map<string, CollectionEntry<"posts">[]>()
-for (const post of writing) {
-  const category = post.data.category || "未分类"
-  categoryMap.set(category, [...(categoryMap.get(category) ?? []), post])
+function createNode(name: string): TreeNode {
+  return { name, searchText: name, children: new Map() }
 }
 
-const folderMap = new Map<string, CollectionEntry<"posts">[]>()
-for (const post of writing) {
-  if (!post.data.folder) continue
-  folderMap.set(post.data.folder, [...(folderMap.get(post.data.folder) ?? []), post])
+function displayName(post: CollectionEntry<"posts">): string {
+  return post.data.title || post.id.split("/").at(-1) || post.id
 }
 
-const folders = [...folderMap.entries()].sort(([a], [b]) => a.localeCompare(b))
-const categories = [...categoryMap.entries()].sort(([a], [b]) => a.localeCompare(b))
-const projectList = projects.slice(0, 12)
+function postSegments(post: CollectionEntry<"posts">): string[] {
+  const idParts = post.id.split("/").filter(Boolean)
+  if (idParts.length > 1) return [...idParts.slice(0, -1), displayName(post)]
+  const folderParts = (post.data.folder || "").split("/").filter(Boolean)
+  return [...folderParts, displayName(post)]
+}
+
+const writingRoot = createNode(nav.writingLabel)
+for (const post of writing) {
+  let cursor = writingRoot
+  for (const segment of postSegments(post)) {
+    if (!cursor.children.has(segment)) cursor.children.set(segment, createNode(segment))
+    cursor = cursor.children.get(segment)!
+  }
+  cursor.href = `/writing/${post.id}`
+  cursor.active = post.id === activeSlug
+  cursor.searchText = `${post.data.title} ${post.data.description} ${post.data.category} ${post.data.tags.join(" ")}`
+}
+
+const projectRoot = createNode(nav.workLabel)
+for (const project of projects) {
+  const name = displayName(project)
+  projectRoot.children.set(name, {
+    name,
+    href: `/work/${project.id}`,
+    active: project.id === activeSlug,
+    searchText: `${project.data.title} ${project.data.description} ${project.data.tags.join(" ")}`,
+    children: new Map(),
+  })
+}
+
+function entries(node: TreeNode): RenderNode[] {
+  return [...node.children.values()].sort((a, b) => {
+    const folderDelta = Number(Boolean(b.children.size)) - Number(Boolean(a.children.size))
+    return folderDelta || a.name.localeCompare(b.name)
+  }).map((child) => ({
+    name: child.name,
+    href: child.href,
+    active: child.active || [...child.children.values()].some((grandchild) => grandchild.active),
+    searchText: child.searchText,
+    children: entries(child),
+  }))
+}
 ---
 
 <aside class="knowledge-dock" data-knowledge-dock>
   <div class="dock-card">
-    <h2>{nav.title}</h2>
-    <div class="dock-line"></div>
-
-    <div class="dock-actions" aria-label="显示设置">
-      <label class="dock-search">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m1.35-5.65a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" /></svg>
-        <input type="search" placeholder={nav.searchPlaceholder} data-knowledge-search />
-      </label>
-      <button class="icon-button" data-theme-toggle aria-label="切换深色或浅色模式">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2m0 14v2M5.64 5.64l1.42 1.42m9.88 9.88 1.42 1.42M3 12h2m14 0h2M5.64 18.36l1.42-1.42m9.88-9.88 1.42-1.42M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z" /></svg>
-      </button>
-      <button class="icon-button reading-trigger" data-reading-toggle aria-label={nav.readingLabel}>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Zm0 0A2.5 2.5 0 0 1 6.5 8H20" /></svg>
-        <span>{nav.readingLabel}</span>
-      </button>
-    </div>
-
-    <details class="nav-group" open={mode === "writing"}>
-      <summary>{nav.writingLabel}</summary>
-      <div class="nav-stack">
-        {folders.length > 0 && (
-          <details class="nav-folder" open>
-            <summary>文件夹</summary>
-            <div class="nav-stack">
-              {folders.map(([folder, posts]) => (
-                <details class="nav-folder">
-                  <summary>{folder}</summary>
-                  <ul>
-                    {posts.map((post) => (
-                      <li data-search-item={`${post.data.title} ${post.data.description} ${post.data.tags.join(" ")}`}>
-                        <a class:list={{ active: post.id === activeSlug }} href={`/writing/${post.id}`}>{post.data.title}</a>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              ))}
-            </div>
-          </details>
-        )}
-        {categories.map(([category, posts]) => (
-          <details class="nav-folder">
-            <summary>{category}</summary>
-            <ul>
-              {posts.map((post) => (
-                <li data-search-item={`${post.data.title} ${post.data.description} ${post.data.tags.join(" ")}`}>
-                  <a class:list={{ active: post.id === activeSlug }} href={`/writing/${post.id}`}>{post.data.title}</a>
-                </li>
-              ))}
-            </ul>
-          </details>
-        ))}
+    <header class="dock-head">
+      <h2>{nav.title}</h2>
+      <div class="dock-actions" aria-label="Display settings">
+        <button class="icon-button" data-theme-toggle aria-label="切换深色或浅色模式">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2m0 14v2M5.64 5.64l1.42 1.42m9.88 9.88 1.42 1.42M3 12h2m14 0h2M5.64 18.36l1.42-1.42m9.88-9.88 1.42-1.42M12 8a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z" /></svg>
+        </button>
+        <button class="icon-button reading-trigger" data-reading-toggle aria-label={nav.readingLabel}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Zm0 0A2.5 2.5 0 0 1 6.5 8H20" /></svg>
+          <span>{nav.readingLabel}</span>
+        </button>
       </div>
-    </details>
+    </header>
 
-    {projectList.length > 0 && (
-      <details class="nav-group" open={mode === "work"}>
-        <summary>{nav.workLabel}</summary>
-        <ul>
-          {projectList.map((project) => (
-            <li data-search-item={`${project.data.title} ${project.data.description} ${project.data.tags.join(" ")}`}>
-              <a class:list={{ active: project.id === activeSlug }} href={`/work/${project.id}`}>{project.data.title}</a>
-            </li>
-          ))}
+    <label class="dock-search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m1.35-5.65a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" /></svg>
+      <input type="search" placeholder={nav.searchPlaceholder} data-knowledge-search />
+    </label>
+
+    <div class="dock-scroll">
+      <details class="tree-group" open={mode === "writing"}>
+        <summary>{nav.writingLabel}</summary>
+        <ul class="tree-list">
+          {entries(writingRoot).map((node) => <KnowledgeTreeItem node={node} />)}
         </ul>
       </details>
-    )}
+
+      {projectRoot.children.size > 0 && (
+        <details class="tree-group" open={mode === "work"}>
+          <summary>{nav.workLabel}</summary>
+          <ul class="tree-list">
+            {entries(projectRoot).map((node) => <KnowledgeTreeItem node={node} />)}
+          </ul>
+        </details>
+      )}
+    </div>
   </div>
   <div class="theme-ripple" data-theme-ripple></div>
 </aside>
@@ -105,50 +127,61 @@ const projectList = projects.slice(0, 12)
 <style>
   .knowledge-dock {
     position: fixed;
-    left: clamp(1rem, 4vw, 4rem);
-    top: 6rem;
+    left: clamp(0.9rem, 3vw, 3rem);
+    top: 5.25rem;
     z-index: 30;
-    width: 270px;
+    width: 252px;
     color: var(--color-ink);
+    font-family: var(--font-body);
+    font-size: 0.78rem;
+    line-height: 1.35;
   }
   .dock-card {
-    background: color-mix(in srgb, var(--color-bg) 86%, transparent);
-    border: 1px solid var(--color-line);
-    border-radius: calc(var(--radius) + 16px);
-    padding: 1.2rem;
-    box-shadow: 0 24px 70px rgba(28, 22, 14, 0.12);
+    height: min(560px, calc(100vh - 7rem));
+    display: flex;
+    flex-direction: column;
+    background: color-mix(in srgb, var(--color-bg) 90%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-line) 86%, transparent);
+    border-radius: calc(var(--radius) + 14px);
+    padding: 0.95rem;
+    box-shadow: 0 18px 54px rgba(28, 22, 14, 0.11);
     backdrop-filter: blur(18px);
+  }
+  .dock-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-bottom: 0.72rem;
+    border-bottom: 1px solid var(--color-line);
+    flex: 0 0 auto;
   }
   .dock-card h2 {
     font-family: var(--font-body);
-    font-size: 1.25rem;
+    font-size: 1rem;
     font-weight: 700;
+    letter-spacing: -0.01em;
     margin: 0;
   }
-  .dock-line {
-    height: 1px;
-    background: var(--color-line);
-    margin: 0.7rem 0 1.35rem;
-  }
   .dock-actions {
-    display: grid;
-    grid-template-columns: 1fr auto auto;
-    gap: 0.6rem;
+    display: flex;
+    gap: 0.15rem;
     align-items: center;
-    margin-bottom: 1.35rem;
   }
   .dock-search {
     display: flex;
     align-items: center;
-    gap: 0.45rem;
+    gap: 0.42rem;
     background: var(--color-surface);
     border-radius: calc(var(--radius) + 8px);
-    padding: 0.55rem 0.7rem;
+    padding: 0.46rem 0.58rem;
+    margin: 0.82rem 0;
+    flex: 0 0 auto;
   }
   .dock-search svg,
   .icon-button svg {
-    width: 1.15rem;
-    height: 1.15rem;
+    width: 1rem;
+    height: 1rem;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.9;
@@ -165,9 +198,10 @@ const projectList = projects.slice(0, 12)
     font: inherit;
   }
   .icon-button {
-    width: 2.25rem;
-    height: 2.25rem;
+    width: 1.8rem;
+    height: 1.8rem;
     border: 0;
+    border-radius: 999px;
     background: transparent;
     color: var(--color-ink);
     display: inline-grid;
@@ -175,33 +209,44 @@ const projectList = projects.slice(0, 12)
     cursor: pointer;
     position: relative;
   }
+  .icon-button:hover {
+    background: var(--color-surface);
+  }
   .reading-trigger span {
     position: absolute;
-    left: 50%;
-    top: calc(100% + 0.25rem);
-    transform: translate(-50%, -0.3rem);
+    right: 0;
+    top: calc(100% + 0.35rem);
+    transform: translateY(-0.25rem);
     opacity: 0;
     pointer-events: none;
     white-space: nowrap;
     background: var(--color-ink);
     color: var(--color-bg);
     border-radius: 999px;
-    padding: 0.25rem 0.6rem;
-    font-size: 0.72rem;
-    transition: opacity 260ms var(--anim-ease), transform 260ms var(--anim-ease);
+    padding: 0.22rem 0.5rem;
+    font-size: 0.68rem;
+    transition: opacity 220ms var(--anim-ease), transform 220ms var(--anim-ease);
   }
   .knowledge-dock:hover .reading-trigger span {
     opacity: 1;
-    transform: translate(-50%, 0);
+    transform: translateY(0);
   }
-  .nav-group,
-  .nav-folder {
-    margin-top: 0.35rem;
+  .dock-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding-right: 0.25rem;
+    scrollbar-width: thin;
+  }
+  .tree-group {
+    margin-bottom: 0.65rem;
   }
   summary {
     cursor: pointer;
     list-style: none;
     font-weight: 700;
+    color: var(--color-ink);
+    user-select: none;
   }
   summary::-webkit-details-marker {
     display: none;
@@ -210,32 +255,37 @@ const projectList = projects.slice(0, 12)
     content: "›";
     display: inline-block;
     color: var(--color-accent);
-    margin-right: 0.45rem;
-    transition: transform 180ms ease;
+    margin-right: 0.38rem;
+    transition: transform 160ms ease;
   }
   details[open] > summary::before {
     transform: rotate(90deg);
   }
-  .nav-stack {
-    margin-left: 0.45rem;
-  }
-  ul {
+  :global(.tree-list) {
     list-style: none;
-    margin: 0.35rem 0 0.75rem 1rem;
+    margin: 0.42rem 0 0.6rem 0.74rem;
     padding: 0;
   }
-  li {
-    margin: 0.28rem 0;
+  :global(.tree-item) {
+    margin: 0.2rem 0;
   }
-  a {
+  :global(.tree-link),
+  :global(.tree-label) {
     display: block;
     color: var(--color-muted);
-    font-size: 0.82rem;
+    font-size: 0.76rem;
     line-height: 1.35;
-    transition: color 180ms ease, transform 180ms ease;
+    padding: 0.12rem 0;
   }
-  a:hover,
-  a.active {
+  :global(.tree-label) {
+    font-weight: 650;
+    color: var(--color-ink);
+  }
+  :global(.tree-link) {
+    transition: color 160ms ease, transform 160ms ease;
+  }
+  :global(.tree-link:hover),
+  :global(.tree-link.active) {
     color: var(--color-accent);
     transform: translateX(2px);
   }
@@ -274,13 +324,8 @@ const projectList = projects.slice(0, 12)
       width: auto;
       margin: 1rem;
     }
-  }
-  @media (max-width: 720px) {
-    .dock-actions {
-      grid-template-columns: 1fr auto auto;
-    }
     .dock-card {
-      padding: 0.9rem;
+      height: 360px;
     }
   }
 </style>

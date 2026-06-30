@@ -1,0 +1,32 @@
+---
+interface TreeNode {
+  name: string
+  href?: string
+  active?: boolean
+  searchText: string
+  children: TreeNode[]
+}
+
+interface Props {
+  node: TreeNode
+}
+
+const { node } = Astro.props
+const searchText = [node.searchText, ...node.children.map((child) => child.searchText)].join(" ")
+const hasChildren = node.children.length > 0
+---
+
+<li class="tree-item" data-search-item={searchText}>
+  {hasChildren ? (
+    <details open={node.children.some((child) => child.active)}>
+      <summary class="tree-label">{node.name}</summary>
+      <ul class="tree-list">
+        {node.children.map((child) => <Astro.self node={child} />)}
+      </ul>
+    </details>
+  ) : node.href ? (
+    <a class:list={{ "tree-link": true, active: node.active }} href={node.href}>{node.name}</a>
+  ) : (
+    <span class="tree-label">{node.name}</span>
+  )}
+</li>
