@@ -17,6 +17,10 @@
     {
       "label": "关于",
       "href": "/about"
+    },
+    {
+      "label": "测试",
+      "href": "/test"
     }
   ],
   "social": [
@@ -45,12 +49,12 @@
       "line": "#d9d3c7"
     },
     "fonts": {
-      "heading": "\"Newsreader\", Georgia, serif",
+      "heading": "\"Playfair Display\", Georgia, serif",
       "body": "\"Geist\", system-ui, sans-serif"
     },
     "typography": {
-      "baseSize": 16,
-      "scale": 1.2,
+      "baseSize": 18,
+      "scale": 1.25,
       "measure": 38,
       "radius": 2
     },
