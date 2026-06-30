@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ContentConfig, ContentFolder, SiteConfig } from "../../lib/config-types";
 
 interface PostItem {
@@ -18,6 +18,13 @@ interface PostItem {
   body?: string;
 }
 
+interface FolderNode {
+  name: string;
+  path: string;
+  children: FolderNode[];
+  posts: PostItem[];
+}
+
 const EMPTY: PostItem & { body: string } = {
   slug: "",
   title: "",
@@ -28,7 +35,7 @@ const EMPTY: PostItem & { body: string } = {
   category: "",
   folder: "",
   draft: false,
-  body: "",
+  body: "# ",
 };
 
 const DEFAULT_CONTENT: ContentConfig = {
@@ -47,10 +54,13 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [config, setConfig] = useState<SiteConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<(PostItem & { body: string }) | null>(null);
+  const [editing, setEditing] = useState<PostItem & { body: string }>({ ...EMPTY });
+  const [selectedFolder, setSelectedFolder] = useState("");
   const [status, setStatus] = useState("");
+  const importRef = useRef<HTMLInputElement | null>(null);
 
   const content = useMemo(() => normalizeContent(config?.content), [config]);
+  const folderTree = useMemo(() => buildFolderTree(posts, content.folders), [posts, content.folders]);
 
   async function load() {
     setLoading(true);
@@ -58,7 +68,9 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     const postData = (await postRes.json()) as { ok: boolean; posts?: PostItem[] };
     const configData = (await configRes.json()) as { ok: boolean; config?: SiteConfig };
     if (postData.ok && postData.posts) {
-      setPosts(postData.posts.sort((a, b) => (b.date || "").localeCompare(a.date || "")));
+      const next = postData.posts.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      setPosts(next);
+      if (!editing.title && next[0]) selectPost(next[0]);
     }
     if (configData.ok && configData.config) setConfig(configData.config);
     setLoading(false);
@@ -68,10 +80,62 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     load();
   }, []);
 
-  async function saveContent(next: ContentConfig) {
-    if (!config) return;
+  function selectPost(post: PostItem) {
+    const editable = toEditablePost(post);
+    setEditing(editable);
+    setSelectedFolder(editable.folder || "");
     setStatus("");
-    const nextConfig = { ...config, content: next };
+  }
+
+  function newPost(kind: "writing" | "project" = "writing") {
+    setEditing({ ...EMPTY, kind, folder: selectedFolder });
+    setStatus("");
+  }
+
+  function set<K extends keyof typeof editing>(key: K, value: (typeof editing)[K]) {
+    setEditing((form) => ({ ...form, [key]: value }));
+  }
+
+  async function save() {
+    if (!editing.title.trim()) {
+      setStatus("标题不能为空");
+      return;
+    }
+    setStatus("正在保存...");
+    const res = await fetch("/api/posts", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...editing,
+        folder: selectedFolder,
+        tags: normalizeTags(editing.tags),
+      }),
+    });
+    const data = (await res.json()) as { ok: boolean; error?: string };
+    if (data.ok) {
+      setStatus("已保存并提交到 GitHub");
+      await load();
+    } else {
+      setStatus(data.error || "保存失败");
+    }
+  }
+
+  async function del(slug: string) {
+    if (!confirm(`确定删除《${slug}》？此操作会从 GitHub 移除该文件。`)) return;
+    const res = await fetch(`/api/posts?slug=${encodeURIComponent(slug)}`, { method: "DELETE" });
+    const data = (await res.json()) as { ok: boolean; error?: string };
+    if (data.ok) {
+      setEditing({ ...EMPTY, folder: selectedFolder });
+      await load();
+    } else {
+      setStatus(data.error || "删除失败");
+    }
+  }
+
+  async function saveFolders(nextFolders: ContentFolder[]) {
+    if (!config) return;
+    const nextContent = { ...content, folders: nextFolders };
+    const nextConfig = { ...config, content: nextContent };
     setConfig(nextConfig);
     const res = await fetch("/api/config", {
       method: "PUT",
@@ -79,68 +143,231 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
       body: JSON.stringify({ config: nextConfig }),
     });
     const data = (await res.json()) as { ok: boolean; error?: string };
-    setStatus(data.ok ? "分类与导航配置已保存" : data.error || "保存配置失败");
+    setStatus(data.ok ? "文件夹已保存" : data.error || "文件夹保存失败");
   }
 
-  async function del(slug: string) {
-    if (!confirm(`确定删除《${slug}》？此操作会从 GitHub 移除该文件。`)) return;
-    const res = await fetch(`/api/posts?slug=${encodeURIComponent(slug)}`, { method: "DELETE" });
+  async function saveContentSettings(nextContent: ContentConfig) {
+    if (!config) return;
+    const nextConfig = { ...config, content: nextContent };
+    setConfig(nextConfig);
+    const res = await fetch("/api/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config: nextConfig }),
+    });
     const data = (await res.json()) as { ok: boolean; error?: string };
-    if (data.ok) load();
-    else alert(data.error || "删除失败");
+    setStatus(data.ok ? "导航配置已保存" : data.error || "配置保存失败");
   }
 
-  const writing = posts.filter((p) => p.kind !== "project");
-  const projects = posts.filter((p) => p.kind === "project");
+  async function importMarkdown(files: FileList | null) {
+    const selected = Array.from(files ?? []);
+    if (!selected.length) return;
+    setStatus("正在导入 Markdown...");
+    const imports = await Promise.all(
+      selected.map((file) => parseMarkdownFile(file, { kind: editing.kind, category: editing.category, folder: selectedFolder })),
+    );
+    const res = await fetch("/api/posts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ posts: imports }),
+    });
+    const data = (await res.json()) as { ok: boolean; failed?: number; error?: string };
+    setStatus(data.ok ? `已导入 ${imports.length} 篇` : data.error || `导入完成，失败 ${data.failed ?? 0} 篇`);
+    await load();
+    if (importRef.current) importRef.current.value = "";
+  }
+
+  function preview() {
+    const doc = previewDocument(editing, renderMarkdown(editing.body));
+    const win = window.open("", "_blank", "noopener,noreferrer,width=980,height=820");
+    if (!win) return;
+    win.document.open();
+    win.document.write(doc);
+    win.document.close();
+  }
+
+  const visiblePosts = selectedFolder
+    ? posts.filter((post) => postFolder(post) === selectedFolder)
+    : posts.filter((post) => !postFolder(post));
+
+  if (loading) return <p className="hint">正在加载...</p>;
 
   return (
-    <>
-      <div className="toolbar" style={{ marginBottom: "1.25rem", flexWrap: "wrap" }}>
-        <button className="btn btn-primary" style={{ width: "auto" }} onClick={() => setEditing({ ...EMPTY })}>
-          + 新建文章
-        </button>
-        <button className="btn" onClick={load}>
-          刷新
-        </button>
-        {status && <span className="hint">{status}</span>}
-      </div>
+    <div className="content-workbench">
+      <input
+        ref={importRef}
+        type="file"
+        accept=".md,.markdown,text/markdown,text/plain"
+        multiple
+        hidden
+        onChange={(e) => importMarkdown(e.target.files)}
+      />
 
-      {loading ? (
-        <p className="hint">正在加载...</p>
-      ) : (
-        <>
-          <TaxonomyEditor content={content} onSave={saveContent} />
-          <ImportPanel content={content} posts={posts} onImported={load} />
-          <Section
-            title="随笔"
-            items={writing}
-            onEdit={(p) => setEditing(toEditablePost(p))}
-            onDelete={del}
-          />
-          <Section
-            title="作品"
-            items={projects}
-            onEdit={(p) => setEditing(toEditablePost(p))}
-            onDelete={del}
-          />
-          {posts.length === 0 && <p className="hint">还没有内容，点击“新建文章”开始。</p>}
-        </>
-      )}
-
-      {editing && (
-        <PostEditor
-          post={editing}
-          githubConfigured={githubConfigured}
-          content={content}
-          posts={posts}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null);
-            load();
+      <aside className="content-explorer">
+        <div className="explorer-head">
+          <div>
+            <div className="eyebrow">内容目录</div>
+            <strong>src/content/posts</strong>
+          </div>
+          <button
+            className="icon-mini"
+            onClick={() => {
+              const name = prompt("新文件夹名称");
+              if (!name?.trim()) return;
+              const parentId = folderIdByPath(content.folders, selectedFolder);
+              saveFolders([...content.folders, { id: `folder-${Date.now()}`, name: name.trim(), parentId, description: "" }]);
+            }}
+            aria-label="添加文件夹"
+          >
+            +
+          </button>
+        </div>
+        <FolderTree
+          node={folderTree}
+          selected={selectedFolder}
+          onSelect={(path) => {
+            setSelectedFolder(path);
+            set("folder", path);
           }}
+          onPost={selectPost}
         />
-      )}
-    </>
+      </aside>
+
+      <main className="editor-canvas">
+        <div className="workbench-topbar">
+          <div className="toolbar">
+            <button className="btn btn-primary" style={{ width: "auto" }} onClick={() => newPost("writing")}>
+              新建随笔
+            </button>
+            <button className="btn" onClick={() => newPost("project")}>
+              新建作品
+            </button>
+            <button className="btn" onClick={() => importRef.current?.click()}>
+              导入 MD
+            </button>
+            <button className="btn" onClick={preview}>
+              预览
+            </button>
+          </div>
+          <div className="toolbar">
+            {status && <span className="hint">{status}</span>}
+            <button className="btn btn-primary" style={{ width: "auto" }} onClick={save}>
+              保存并提交
+            </button>
+          </div>
+        </div>
+
+        {!githubConfigured && <div className="banner warn">未配置 GitHub，保存会失败。请先设置 GITHUB_TOKEN / GITHUB_REPO。</div>}
+
+        <div className="editor-layout">
+          <section className="editor-main-card">
+            <div className="title-grid">
+              <input
+                className="ghost-input title-input"
+                value={editing.title}
+                placeholder="标题"
+                onChange={(e) => set("title", e.target.value)}
+              />
+              <input
+                className="ghost-input slug-input"
+                value={editing.slug}
+                placeholder="slug (xx-xx)"
+                onChange={(e) => set("slug", e.target.value)}
+              />
+            </div>
+            <textarea
+              className="article-textarea"
+              value={editing.body}
+              placeholder="#&#10;&#10;从这里开始写作..."
+              onChange={(e) => set("body", e.target.value)}
+            />
+          </section>
+
+          <aside className="editor-side-stack">
+            <section className="glass-card cover-card">
+              <label>封面</label>
+              <button className="cover-drop" onClick={() => set("cover", prompt("封面图片 URL", editing.cover || "") || editing.cover)}>
+                {editing.cover ? <img src={editing.cover} alt="" /> : <span>+</span>}
+              </button>
+            </section>
+
+            <section className="glass-card">
+              <label>元信息</label>
+              <textarea
+                className="ghost-input meta-summary"
+                value={editing.description}
+                placeholder="为这篇文章写一段简短摘要"
+                onChange={(e) => set("description", e.target.value)}
+              />
+              <input
+                className="ghost-input"
+                value={Array.isArray(editing.tags) ? editing.tags.join(", ") : (editing.tags as any)}
+                placeholder="添加标签（逗号分隔）"
+                onChange={(e) => set("tags", e.target.value as any)}
+              />
+              <input
+                className="ghost-input"
+                list="post-categories"
+                value={editing.category}
+                placeholder="未分类"
+                onChange={(e) => set("category", e.target.value)}
+              />
+              <datalist id="post-categories">
+                {content.categories.map((cat) => (
+                  <option value={cat} key={cat} />
+                ))}
+              </datalist>
+              <select className="ghost-input" value={editing.kind} onChange={(e) => set("kind", e.target.value as "writing" | "project")}>
+                <option value="writing">随笔</option>
+                <option value="project">作品</option>
+              </select>
+              <input className="ghost-input" type="date" value={editing.date} onChange={(e) => set("date", e.target.value)} />
+              <label className="check-row">
+                <input type="checkbox" checked={Boolean(editing.draft)} onChange={(e) => set("draft", e.target.checked)} />
+                隐藏此文章（仅管理员可见）
+              </label>
+              <div className="selected-path">保存到：{selectedFolder || "顶层"}</div>
+            </section>
+
+            <section className="glass-card">
+              <div className="card-headline">
+                <label>图片管理</label>
+                <button className="link-button">压缩工具</button>
+              </div>
+              <div className="image-add">
+                <input className="ghost-input" placeholder="https://..." />
+                <button className="btn">添加</button>
+              </div>
+              <button className="image-tile">+</button>
+            </section>
+          </aside>
+        </div>
+
+        <section className="panel compact-panel">
+          <div className="panel-headline">
+            <h3>当前目录内容</h3>
+            {editing.slug && (
+              <button className="btn btn-danger" onClick={() => del(editing.folder ? `${editing.folder}/${editing.slug}` : editing.slug)}>
+                删除当前文章
+              </button>
+            )}
+          </div>
+          {visiblePosts.length === 0 ? (
+            <p className="hint">当前目录还没有内容。</p>
+          ) : (
+            visiblePosts.map((post) => (
+              <button className="file-row" key={post.slug} onClick={() => selectPost(post)}>
+                <span>{post.kind === "project" ? "◆" : "◇"}</span>
+                <strong>{post.title}</strong>
+                <small>{post.slug}</small>
+              </button>
+            ))
+          )}
+        </section>
+
+        <ContentSettingsInline content={content} onSave={saveContentSettings} />
+      </main>
+    </div>
   );
 }
 
@@ -168,471 +395,43 @@ function toEditablePost(post: PostItem): PostItem & { body: string } {
   };
 }
 
-function Section({
-  title,
-  items,
-  onEdit,
-  onDelete,
-}: {
-  title: string;
-  items: PostItem[];
-  onEdit: (p: PostItem) => void;
-  onDelete: (slug: string) => void;
-}) {
-  if (items.length === 0) return null;
-  return (
-    <div className="panel">
-      <h3>{title}</h3>
-      {items.map((p) => (
-        <div className="post-row" key={p.slug}>
-          <div>
-            <div>
-              {p.title}
-              {p.draft && <span className="tag">草稿</span>}
-            </div>
-            <div className="meta">
-              {p.date} / {p.slug}
-              {p.category ? ` / ${p.category}` : ""}
-              {p.folder ? ` / ${p.folder}` : ""}
-            </div>
-          </div>
-          <div className="toolbar">
-            <button className="btn" onClick={() => onEdit(p)}>
-              编辑
-            </button>
-            <button className="btn btn-danger" onClick={() => onDelete(p.slug)}>
-              删除
-            </button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+function normalizeTags(tags: PostItem["tags"]): string[] {
+  if (Array.isArray(tags)) return tags;
+  return String(tags || "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-function TaxonomyEditor({
-  content,
-  onSave,
-}: {
-  content: ContentConfig;
-  onSave: (content: ContentConfig) => void;
-}) {
-  const [draft, setDraft] = useState(content);
-  useEffect(() => setDraft(content), [content]);
-
-  function setFolder(i: number, patch: Partial<ContentFolder>) {
-    setDraft((d) => ({
-      ...d,
-      folders: d.folders.map((folder, idx) => (idx === i ? { ...folder, ...patch } : folder)),
-    }));
-  }
-
-  return (
-    <div className="panel">
-      <h3>分类、文件夹与悬浮导航</h3>
-      <div className="grid-2">
-        <div className="field">
-          <label>随笔分类（每行一个）</label>
-          <textarea
-            className="textarea textarea-compact"
-            value={draft.categories.join("\n")}
-            onChange={(e) =>
-              setDraft({ ...draft, categories: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })
-            }
-          />
-        </div>
-        <div className="field">
-          <label>悬浮模块标题</label>
-          <input
-            className="input"
-            value={draft.floatingNav.title}
-            onChange={(e) => setDraft({ ...draft, floatingNav: { ...draft.floatingNav, title: e.target.value } })}
-          />
-          <label style={{ marginTop: "0.75rem" }}>搜索占位文案</label>
-          <input
-            className="input"
-            value={draft.floatingNav.searchPlaceholder}
-            onChange={(e) =>
-              setDraft({ ...draft, floatingNav: { ...draft.floatingNav, searchPlaceholder: e.target.value } })
-            }
-          />
-          <div className="grid-2" style={{ marginTop: "0.75rem" }}>
-            <input
-              className="input"
-              value={draft.floatingNav.writingLabel}
-              onChange={(e) =>
-                setDraft({ ...draft, floatingNav: { ...draft.floatingNav, writingLabel: e.target.value } })
-              }
-            />
-            <input
-              className="input"
-              value={draft.floatingNav.workLabel}
-              onChange={(e) =>
-                setDraft({ ...draft, floatingNav: { ...draft.floatingNav, workLabel: e.target.value } })
-              }
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="folder-list">
-        <div className="row">
-          <span className="label">文件夹层级</span>
-          <button
-            className="btn"
-            onClick={() =>
-              setDraft({
-                ...draft,
-                folders: [
-                  ...draft.folders,
-                  { id: `folder-${Date.now()}`, name: "新文件夹", parentId: "", description: "" },
-                ],
-              })
-            }
-          >
-            + 添加文件夹
-          </button>
-        </div>
-        {draft.folders.map((folder, i) => (
-          <div className="folder-row" key={folder.id}>
-            <input className="input" value={folder.name} onChange={(e) => setFolder(i, { name: e.target.value })} />
-            <select className="select" value={folder.parentId || ""} onChange={(e) => setFolder(i, { parentId: e.target.value })}>
-              <option value="">顶层</option>
-              {draft.folders
-                .filter((candidate) => candidate.id !== folder.id)
-                .map((candidate) => (
-                  <option value={candidate.id} key={candidate.id}>
-                    {candidate.name}
-                  </option>
-                ))}
-            </select>
-            <input
-              className="input"
-              placeholder="描述"
-              value={folder.description || ""}
-              onChange={(e) => setFolder(i, { description: e.target.value })}
-            />
-            <button
-              className="btn btn-danger"
-              onClick={() => setDraft({ ...draft, folders: draft.folders.filter((_, idx) => idx !== i) })}
-            >
-              删除
-            </button>
-          </div>
-        ))}
-      </div>
-      <button className="btn btn-primary" style={{ width: "auto", marginTop: "0.75rem" }} onClick={() => onSave(draft)}>
-        保存分类与导航配置
-      </button>
-    </div>
-  );
+function postFolder(post: PostItem): string {
+  if (post.folder) return post.folder;
+  return post.slug.split("/").filter(Boolean).slice(0, -1).join("/");
 }
 
-function ImportPanel({ content, posts, onImported }: { content: ContentConfig; posts: PostItem[]; onImported: () => void }) {
-  const [files, setFiles] = useState<File[]>([]);
-  const [kind, setKind] = useState<"writing" | "project">("writing");
-  const [category, setCategory] = useState("");
-  const [folder, setFolder] = useState("");
-  const [status, setStatus] = useState("");
-
-  async function importFiles() {
-    if (!files.length) return;
-    setStatus("正在解析 Markdown...");
-    const posts = await Promise.all(files.map((file) => parseMarkdownFile(file, { kind, category, folder })));
-    const res = await fetch("/api/posts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ posts }),
-    });
-    const data = (await res.json()) as { ok: boolean; failed?: number; error?: string };
-    setStatus(data.ok ? `已导入 ${posts.length} 篇` : data.error || `导入完成，失败 ${data.failed ?? 0} 篇`);
-    setFiles([]);
-    onImported();
-  }
-
-  return (
-    <div className="panel">
-      <h3>导入 Markdown</h3>
-      <div className="grid-2">
-        <div className="field">
-          <label>选择一个或多个 .md 文件</label>
-          <input
-            className="input"
-            type="file"
-            accept=".md,.markdown,text/markdown,text/plain"
-            multiple
-            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
-          />
-        </div>
-        <MetaSelectors
-          kind={kind}
-          category={category}
-          folder={folder}
-          content={content}
-          posts={posts}
-          onKind={setKind}
-          onCategory={setCategory}
-          onFolder={setFolder}
-        />
-      </div>
-      <div className="toolbar">
-        <button className="btn btn-primary" style={{ width: "auto" }} onClick={importFiles} disabled={!files.length}>
-          批量导入
-        </button>
-        <span className="hint">{files.length ? `已选择 ${files.length} 个文件` : "会读取 frontmatter；缺失字段使用这里的默认值。"}</span>
-        {status && <span className="hint">{status}</span>}
-      </div>
-    </div>
-  );
-}
-
-function PostEditor({
-  post,
-  githubConfigured,
-  content,
-  posts,
-  onClose,
-  onSaved,
-}: {
-  post: PostItem & { body: string };
-  githubConfigured: boolean;
-  content: ContentConfig;
-  posts: PostItem[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [form, setForm] = useState(post);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [mode, setMode] = useState<"visual" | "markdown" | "preview">("visual");
-
-  function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
-    setForm((f) => ({ ...f, [key]: value }));
-  }
-
-  function insertMarkdown(before: string, after = "", fallback = "") {
-    const textarea = document.getElementById("post-body") as HTMLTextAreaElement | null;
-    const start = textarea?.selectionStart ?? form.body.length;
-    const end = textarea?.selectionEnd ?? form.body.length;
-    const selected = form.body.slice(start, end) || fallback;
-    const next = `${form.body.slice(0, start)}${before}${selected}${after}${form.body.slice(end)}`;
-    set("body", next);
-  }
-
-  async function save() {
-    if (!form.title.trim()) {
-      setError("标题不能为空");
-      return;
+function buildFolderTree(posts: PostItem[], folders: ContentFolder[]): FolderNode {
+  const root: FolderNode = { name: "posts", path: "", children: [], posts: [] };
+  const ensure = (path: string) => {
+    let cursor = root;
+    let prefix = "";
+    for (const part of path.split("/").filter(Boolean)) {
+      prefix = [prefix, part].filter(Boolean).join("/");
+      let child = cursor.children.find((item) => item.path === prefix);
+      if (!child) {
+        child = { name: part, path: prefix, children: [], posts: [] };
+        cursor.children.push(child);
+      }
+      cursor = child;
     }
-    setSaving(true);
-    setError("");
-    const res = await fetch("/api/posts", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...form,
-        tags:
-          typeof (form.tags as any) === "string"
-            ? (form.tags as any).split(",").map((s: string) => s.trim()).filter(Boolean)
-            : form.tags,
-      }),
-    });
-    const data = (await res.json()) as { ok: boolean; error?: string };
-    setSaving(false);
-    if (data.ok) onSaved();
-    else setError(data.error || "保存失败");
-  }
+    return cursor;
+  };
 
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-        <h3>{post.slug ? "编辑文章" : "新建文章"}</h3>
-
-        {!githubConfigured && <div className="banner warn">未配置 GitHub，保存将失败。请先设置环境变量。</div>}
-
-        <div className="grid-2">
-          <div className="field">
-            <label>标题</label>
-            <input className="input" value={form.title} onChange={(e) => set("title", e.target.value)} />
-          </div>
-          <div className="field">
-            <label>文件名 slug（留空自动生成）</label>
-            <input className="input" value={form.slug} placeholder="my-post" onChange={(e) => set("slug", e.target.value)} />
-          </div>
-        </div>
-
-        <div className="grid-2">
-          <MetaSelectors
-            kind={form.kind || "writing"}
-            category={form.category || ""}
-            folder={form.folder || ""}
-            content={content}
-            posts={posts}
-            onKind={(value) => set("kind", value)}
-            onCategory={(value) => set("category", value)}
-            onFolder={(value) => set("folder", value)}
-          />
-          <div className="field">
-            <label>日期</label>
-            <input className="input" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
-          </div>
-        </div>
-
-        <div className="field">
-          <label>摘要</label>
-          <input className="input" value={form.description} onChange={(e) => set("description", e.target.value)} />
-        </div>
-
-        <div className="grid-2">
-          <div className="field">
-            <label>标签（逗号分隔）</label>
-            <input
-              className="input"
-              value={Array.isArray(form.tags) ? form.tags.join(", ") : (form.tags as any)}
-              onChange={(e) => set("tags", e.target.value as any)}
-            />
-          </div>
-          <div className="field">
-            <label>封面图 URL（可选）</label>
-            <input className="input" value={form.cover || ""} onChange={(e) => set("cover", e.target.value)} />
-          </div>
-        </div>
-
-        {form.kind === "project" && (
-          <div className="grid-2">
-            <div className="field">
-              <label>年份</label>
-              <input className="input" value={form.year || ""} onChange={(e) => set("year", e.target.value)} />
-            </div>
-            <div className="field">
-              <label>角色 / 外链 URL</label>
-              <input className="input" value={form.url || ""} onChange={(e) => set("url", e.target.value)} />
-            </div>
-          </div>
-        )}
-
-        <div className="editor-tabs">
-          <button className={`btn ${mode === "visual" ? "active" : ""}`} onClick={() => setMode("visual")}>
-            可视化
-          </button>
-          <button className={`btn ${mode === "markdown" ? "active" : ""}`} onClick={() => setMode("markdown")}>
-            Markdown
-          </button>
-          <button className={`btn ${mode === "preview" ? "active" : ""}`} onClick={() => setMode("preview")}>
-            预览
-          </button>
-        </div>
-
-        {mode !== "preview" && (
-          <div className="editor-tools">
-            <button className="btn" onClick={() => insertMarkdown("## ", "", "小标题")}>
-              H2
-            </button>
-            <button className="btn" onClick={() => insertMarkdown("**", "**", "加粗文本")}>
-              B
-            </button>
-            <button className="btn" onClick={() => insertMarkdown("> ", "", "引用")}>
-              引用
-            </button>
-            <button className="btn" onClick={() => insertMarkdown("- ", "", "列表项")}>
-              列表
-            </button>
-            <button className="btn" onClick={() => insertMarkdown("[", "](https://)", "链接")}>
-              链接
-            </button>
-          </div>
-        )}
-
-        {mode === "preview" ? (
-          <div className="wysiwyg-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(form.body) }} />
-        ) : mode === "visual" ? (
-          <div
-            className="wysiwyg-editor"
-            contentEditable
-            suppressContentEditableWarning
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(form.body || "从这里开始写作...") }}
-            onInput={(e) => set("body", htmlToMarkdown(e.currentTarget))}
-          />
-        ) : (
-          <textarea
-            id="post-body"
-            className="textarea"
-            value={form.body}
-            placeholder="# 标题&#10;&#10;在这里写作..."
-            onChange={(e) => set("body", e.target.value)}
-          />
-        )}
-
-        <div className="row">
-          <span className="label">设为草稿（不公开显示）</span>
-          <button className={`toggle ${form.draft ? "on" : ""}`} onClick={() => set("draft", !form.draft)} aria-label="草稿开关" />
-        </div>
-
-        {error && <div className="error-msg">{error}</div>}
-
-        <div className="modal-actions">
-          <button className="btn" onClick={onClose}>
-            取消
-          </button>
-          <button className="btn btn-primary" style={{ width: "auto" }} onClick={save} disabled={saving}>
-            {saving ? <span className="spin" /> : "保存并提交"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  for (const option of folderOptions(folders, posts)) ensure(option.path);
+  for (const post of posts) ensure(postFolder(post)).posts.push(post);
+  sortTree(root);
+  return root;
 }
 
-function MetaSelectors({
-  kind,
-  category,
-  folder,
-  content,
-  posts = [],
-  onKind,
-  onCategory,
-  onFolder,
-}: {
-  kind: "writing" | "project";
-  category: string;
-  folder: string;
-  content: ContentConfig;
-  posts?: PostItem[];
-  onKind: (value: "writing" | "project") => void;
-  onCategory: (value: string) => void;
-  onFolder: (value: string) => void;
-}) {
-  return (
-    <div className="grid-2">
-      <div className="field">
-        <label>类型</label>
-        <select className="select" value={kind} onChange={(e) => onKind(e.target.value as "writing" | "project")}>
-          <option value="writing">随笔</option>
-          <option value="project">作品</option>
-        </select>
-      </div>
-      <div className="field">
-        <label>分类</label>
-        <input className="input" list="post-categories" value={category} onChange={(e) => onCategory(e.target.value)} />
-        <datalist id="post-categories">
-          {content.categories.map((cat) => (
-            <option value={cat} key={cat} />
-          ))}
-        </datalist>
-      </div>
-      <div className="field" style={{ gridColumn: "1 / -1" }}>
-        <label>文件夹</label>
-        <select className="select" value={folder} onChange={(e) => onFolder(e.target.value)}>
-          <option value="">不放入文件夹</option>
-          {folderOptions(content.folders, posts).map((option) => (
-            <option value={option.path} key={option.path}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-    </div>
-  );
+function sortTree(node: FolderNode) {
+  node.children.sort((a, b) => a.name.localeCompare(b.name));
+  node.posts.sort((a, b) => a.title.localeCompare(b.title));
+  node.children.forEach(sortTree);
 }
 
 function folderOptions(folders: ContentFolder[], posts: PostItem[] = []) {
@@ -650,7 +449,6 @@ function folderOptions(folders: ContentFolder[], posts: PostItem[] = []) {
     }
   }
   walk("", "", 0);
-
   for (const post of posts) {
     const parts = post.slug.split("/").filter(Boolean).slice(0, -1);
     let prefix = "";
@@ -663,8 +461,117 @@ function folderOptions(folders: ContentFolder[], posts: PostItem[] = []) {
       map.set(post.folder, { label: `${"  ".repeat(Math.max(depth, 0))}${post.folder.split("/").at(-1)}`, path: post.folder });
     }
   }
-
   return [...map.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function folderIdByPath(folders: ContentFolder[], path: string): string {
+  if (!path) return "";
+  const parts = path.split("/").filter(Boolean);
+  let parentId = "";
+  let found = "";
+  for (const part of parts) {
+    const folder = folders.find((item) => item.name === part && (item.parentId || "") === parentId);
+    if (!folder) return "";
+    found = folder.id;
+    parentId = folder.id;
+  }
+  return found;
+}
+
+function FolderTree({
+  node,
+  selected,
+  onSelect,
+  onPost,
+}: {
+  node: FolderNode;
+  selected: string;
+  onSelect: (path: string) => void;
+  onPost: (post: PostItem) => void;
+}) {
+  return (
+    <div className="folder-tree">
+      <button className={`folder-node ${selected === "" ? "active" : ""}`} onClick={() => onSelect("")}>
+        <span>▾</span>
+        <strong>posts</strong>
+      </button>
+      <div className="folder-children">
+        {node.children.map((child) => (
+          <FolderBranch key={child.path} node={child} selected={selected} onSelect={onSelect} onPost={onPost} />
+        ))}
+        {node.posts.map((post) => (
+          <button className="post-node" key={post.slug} onClick={() => onPost(post)}>
+            <span>◇</span>
+            {post.title}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FolderBranch({
+  node,
+  selected,
+  onSelect,
+  onPost,
+}: {
+  node: FolderNode;
+  selected: string;
+  onSelect: (path: string) => void;
+  onPost: (post: PostItem) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div>
+      <button className={`folder-node ${selected === node.path ? "active" : ""}`} onClick={() => onSelect(node.path)}>
+        <span onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>{open ? "▾" : "▸"}</span>
+        <strong>{node.name}</strong>
+      </button>
+      {open && (
+        <div className="folder-children">
+          {node.children.map((child) => (
+            <FolderBranch key={child.path} node={child} selected={selected} onSelect={onSelect} onPost={onPost} />
+          ))}
+          {node.posts.map((post) => (
+            <button className="post-node" key={post.slug} onClick={() => onPost(post)}>
+              <span>{post.kind === "project" ? "◆" : "◇"}</span>
+              {post.title}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContentSettingsInline({ content, onSave }: { content: ContentConfig; onSave: (content: ContentConfig) => void }) {
+  const [draft, setDraft] = useState(content);
+  useEffect(() => setDraft(content), [content]);
+  return (
+    <details className="panel compact-panel">
+      <summary>分类与悬浮导航配置</summary>
+      <div className="grid-2" style={{ marginTop: "1rem" }}>
+        <div className="field">
+          <label>随笔分类（每行一个）</label>
+          <textarea
+            className="textarea textarea-compact"
+            value={draft.categories.join("\n")}
+            onChange={(e) => setDraft({ ...draft, categories: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })}
+          />
+        </div>
+        <div className="field">
+          <label>悬浮模块标题</label>
+          <input className="input" value={draft.floatingNav.title} onChange={(e) => setDraft({ ...draft, floatingNav: { ...draft.floatingNav, title: e.target.value } })} />
+          <label style={{ marginTop: "0.75rem" }}>搜索占位文案</label>
+          <input className="input" value={draft.floatingNav.searchPlaceholder} onChange={(e) => setDraft({ ...draft, floatingNav: { ...draft.floatingNav, searchPlaceholder: e.target.value } })} />
+        </div>
+      </div>
+      <button className="btn btn-primary" style={{ width: "auto" }} onClick={() => onSave(draft)}>
+        保存配置
+      </button>
+    </details>
+  );
 }
 
 async function parseMarkdownFile(
@@ -709,10 +616,7 @@ function parseFrontmatter(text: string): { data: Record<string, any>; body: stri
 }
 
 function renderMarkdown(markdown: string): string {
-  const escaped = markdown
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  const escaped = markdown.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return escaped
     .split(/\n{2,}/)
     .map((block) => {
@@ -720,36 +624,42 @@ function renderMarkdown(markdown: string): string {
       if (block.startsWith("## ")) return `<h2>${inline(block.slice(3))}</h2>`;
       if (block.startsWith("# ")) return `<h1>${inline(block.slice(2))}</h1>`;
       if (block.startsWith("&gt; ")) return `<blockquote>${inline(block.replace(/^&gt; /gm, ""))}</blockquote>`;
-      if (block.startsWith("- ")) {
-        const items = block.split(/\n/).map((line) => `<li>${inline(line.replace(/^- /, ""))}</li>`).join("");
-        return `<ul>${items}</ul>`;
-      }
+      if (block.startsWith("- ")) return `<ul>${block.split(/\n/).map((line) => `<li>${inline(line.replace(/^- /, ""))}</li>`).join("")}</ul>`;
       return `<p>${inline(block).replace(/\n/g, "<br />")}</p>`;
     })
     .join("");
 }
 
 function inline(text: string): string {
-  return text
-    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>');
+  return text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>');
 }
 
-function htmlToMarkdown(root: HTMLElement): string {
-  const blocks: string[] = [];
-  for (const node of Array.from(root.childNodes)) {
-    const text = (node.textContent || "").trim();
-    if (!text) continue;
-    if (node instanceof HTMLHeadingElement) {
-      const level = node.tagName === "H1" ? "# " : node.tagName === "H2" ? "## " : "### ";
-      blocks.push(`${level}${text}`);
-    } else if (node instanceof HTMLQuoteElement) {
-      blocks.push(text.split(/\n/).map((line) => `> ${line}`).join("\n"));
-    } else if (node instanceof HTMLUListElement || node instanceof HTMLOListElement) {
-      blocks.push(Array.from(node.querySelectorAll("li")).map((li) => `- ${li.textContent?.trim() ?? ""}`).join("\n"));
-    } else {
-      blocks.push(text);
-    }
-  }
-  return blocks.join("\n\n");
+function previewDocument(post: PostItem, html: string): string {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>${escapeHtml(post.title || "预览")}</title>
+  <style>
+    body{margin:0;background:#f4f1ea;color:#1a1814;font:18px/1.75 Georgia,"Source Serif 4",serif}
+    article{max-width:720px;margin:0 auto;padding:72px 24px}
+    h1{font-size:48px;line-height:1.05;margin:0 0 16px;font-weight:500}
+    .meta{color:#7c7468;font:14px/1.5 system-ui,sans-serif;margin-bottom:56px}
+    .prose h2{margin-top:2.2em}.prose blockquote{border-left:2px solid #b4502e;padding-left:1rem;color:#6f6a60}
+    .prose code{background:#ece8df;padding:.1em .35em;border-radius:4px}.prose a{color:#b4502e}
+  </style>
+</head>
+<body>
+  <article>
+    <h1>${escapeHtml(post.title || "未命名")}</h1>
+    <div class="meta">${escapeHtml(post.date || "")} / ${escapeHtml(post.category || "未分类")}</div>
+    <div class="prose">${html}</div>
+  </article>
+</body>
+</html>`;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
