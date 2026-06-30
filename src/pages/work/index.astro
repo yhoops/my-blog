@@ -1,0 +1,37 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro"
+import { getProjects, formatYear } from "../../lib/posts"
+
+const projects = await getProjects()
+---
+
+<BaseLayout title="作品" description="精选作品与项目">
+  <section class="mx-auto max-w-3xl px-6 md:px-8 pt-10 pb-12">
+    <h1 class="reveal text-4xl md:text-5xl mb-3">作品</h1>
+    <p class="reveal text-muted text-lg" style="--reveal-delay:80ms">
+      我做过的一些项目与实验。
+    </p>
+  </section>
+  <section class="mx-auto max-w-3xl px-6 md:px-8 pb-16">
+    <ul class="flex flex-col">
+      {
+        projects.map((project) => (
+          <li class="reveal border-t border-line">
+            <a href={`/work/${project.id}`} class="group grid grid-cols-[3rem_1fr_auto] items-baseline gap-4 py-6">
+              <span class="text-sm text-faint tabular-nums">
+                {project.data.year ?? formatYear(project.data.date)}
+              </span>
+              <div>
+                <h2 class="text-xl md:text-2xl group-hover:text-accent transition-colors duration-300">
+                  {project.data.title}
+                </h2>
+                <p class="mt-1 text-muted text-pretty">{project.data.description}</p>
+              </div>
+              <span class="text-sm text-faint hidden sm:block">{project.data.role}</span>
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+</BaseLayout>

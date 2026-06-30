@@ -1,0 +1,40 @@
+---
+import { getWriting, formatDate } from "../../lib/posts"
+
+interface Props {
+  props: { heading?: string; limit?: number; showDescription?: boolean }
+}
+const { props } = Astro.props
+const all = await getWriting()
+const posts = props.limit ? all.slice(0, props.limit) : all
+---
+
+<section class="mx-auto max-w-3xl px-6 md:px-8 py-12">
+  <div class="reveal flex items-baseline justify-between mb-8">
+    <h2 class="text-sm uppercase tracking-[0.18em] text-faint">{props.heading ?? "随笔"}</h2>
+    <a href="/writing" class="text-sm text-muted hover:text-ink link-underline">全部</a>
+  </div>
+  <ul class="flex flex-col">
+    {
+      posts.map((post) => (
+        <li class="reveal border-t border-line">
+          <a href={`/writing/${post.id}`} class="group block py-5">
+            <div class="flex items-baseline justify-between gap-4">
+              <h3 class="text-xl md:text-2xl group-hover:text-accent transition-colors duration-300">
+                {post.data.title}
+              </h3>
+              <time class="shrink-0 text-sm text-faint tabular-nums" datetime={post.data.date.toISOString()}>
+                {formatDate(post.data.date)}
+              </time>
+            </div>
+            {props.showDescription && post.data.description && (
+              <p class="mt-2 text-muted leading-relaxed text-pretty" style="max-width:var(--measure)">
+                {post.data.description}
+              </p>
+            )}
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</section>

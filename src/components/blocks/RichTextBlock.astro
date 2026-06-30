@@ -1,0 +1,16 @@
+---
+interface Props {
+  props: { heading?: string; body?: string; text?: string }
+}
+const { props } = Astro.props
+const content = props.body ?? props.text ?? ""
+---
+
+<section class="mx-auto max-w-3xl px-6 md:px-8 py-12">
+  {props.heading && (
+    <h2 class="reveal text-sm uppercase tracking-[0.18em] text-faint mb-8">{props.heading}</h2>
+  )}
+  <div class="reveal prose">
+    {content.split("\n\n").map((para: string) => <p>{para}</p>)}
+  </div>
+</section>

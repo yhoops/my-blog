@@ -1,0 +1,37 @@
+---
+import type { Block } from "../lib/config-types"
+import HeroBlock from "./blocks/HeroBlock.astro"
+import WritingListBlock from "./blocks/WritingListBlock.astro"
+import ProjectListBlock from "./blocks/ProjectListBlock.astro"
+import LinkListBlock from "./blocks/LinkListBlock.astro"
+import RichTextBlock from "./blocks/RichTextBlock.astro"
+import SpacerBlock from "./blocks/SpacerBlock.astro"
+
+interface Props {
+  blocks: Block[]
+}
+const { blocks } = Astro.props
+const visible = blocks.filter((b) => b.visible)
+---
+
+{
+  visible.map((block) => {
+    switch (block.type) {
+      case "hero":
+        return <HeroBlock props={block.props} />
+      case "intro":
+      case "richText":
+        return <RichTextBlock props={block.props} />
+      case "writingList":
+        return <WritingListBlock props={block.props} />
+      case "projectList":
+        return <ProjectListBlock props={block.props} />
+      case "linkList":
+        return <LinkListBlock props={block.props} />
+      case "spacer":
+        return <SpacerBlock props={block.props} />
+      default:
+        return null
+    }
+  })
+}

@@ -1,0 +1,32 @@
+---
+import StudioLayout from "../../layouts/StudioLayout.astro";
+import LoginForm from "../../components/studio/LoginForm.tsx";
+import StudioApp from "../../components/studio/StudioApp.tsx";
+import { getEnv } from "../../lib/env";
+import { readAuthEnv, verifySession, authConfigured, SESSION_COOKIE } from "../../lib/auth";
+import { readGitHubEnv, isConfigured } from "../../lib/github";
+
+export const prerender = false;
+
+const env = getEnv(Astro);
+const authEnv = readAuthEnv(env);
+const ghEnv = readGitHubEnv(env);
+
+const token = Astro.cookies.get(SESSION_COOKIE)?.value;
+const loggedIn = await verifySession(authEnv, token);
+
+const flags = {
+  authConfigured: authConfigured(authEnv),
+  githubConfigured: isConfigured(ghEnv),
+};
+---
+
+<StudioLayout title={loggedIn ? "工作室" : "登录"}>
+  {
+    loggedIn ? (
+      <StudioApp client:load githubConfigured={flags.githubConfigured} />
+    ) : (
+      <LoginForm client:load authConfigured={flags.authConfigured} />
+    )
+  }
+</StudioLayout>

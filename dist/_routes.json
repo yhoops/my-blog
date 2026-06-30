@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "include": [
+    "/_server-islands/*",
+    "/_image",
+    "/api/*",
+    "/studio"
+  ],
+  "exclude": [
+    "/",
+    "/_astro/*",
+    "/favicon.svg",
+    "/rss.xml",
+    "/404",
+    "/about",
+    "/work/*",
+    "/writing/*"
+  ]
+}

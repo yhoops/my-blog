@@ -1,0 +1,11 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro"
+import BlockRenderer from "../components/BlockRenderer.astro"
+import { getSiteConfig } from "../lib/config"
+
+const site = getSiteConfig()
+---
+
+<BaseLayout>
+  <BlockRenderer blocks={site.blocks} />
+</BaseLayout>

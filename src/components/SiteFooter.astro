@@ -1,0 +1,25 @@
+---
+import { getSiteConfig } from "../lib/config"
+const site = getSiteConfig()
+const year = new Date().getFullYear()
+---
+
+<footer class="w-full border-t border-line mt-24">
+  <div class="mx-auto max-w-3xl px-6 md:px-8 py-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-sm text-muted">
+    <p>© {year} {site.meta.author}</p>
+    <nav aria-label="社交链接" class="flex items-center gap-5">
+      {
+        site.social.map((item) => (
+          <a
+            href={item.href}
+            class="link-underline hover:text-ink transition-colors"
+            target={item.href.startsWith("http") ? "_blank" : undefined}
+            rel={item.href.startsWith("http") ? "noopener noreferrer" : undefined}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+    </nav>
+  </div>
+</footer>

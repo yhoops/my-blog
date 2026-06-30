@@ -1,0 +1,12 @@
+---
+interface Props {
+  props: { size?: "sm" | "md" | "lg"; divider?: boolean }
+}
+const { props } = Astro.props
+const sizes = { sm: "py-6", md: "py-12", lg: "py-20" }
+const cls = sizes[props.size ?? "md"]
+---
+
+<div class={`mx-auto max-w-3xl px-6 md:px-8 ${cls}`}>
+  {props.divider && <hr class="border-t border-line" />}
+</div>

@@ -1,0 +1,58 @@
+---
+import { getCollection, render } from "astro:content"
+import BaseLayout from "../../layouts/BaseLayout.astro"
+import { formatDate } from "../../lib/posts"
+
+export async function getStaticPaths() {
+  const projects = await getCollection("posts", ({ data }) => data.kind === "project" && !data.draft)
+  return projects.map((post) => ({
+    params: { slug: post.id },
+    props: { post },
+  }))
+}
+
+const { post } = Astro.props
+const { Content } = await render(post)
+---
+
+<BaseLayout title={post.data.title} description={post.data.description}>
+  <article class="mx-auto max-w-3xl px-6 md:px-8 pt-10 pb-16">
+    <header class="reveal mb-12">
+      <a href="/work" class="text-sm text-muted hover:text-ink link-underline">← 作品</a>
+      <h1 class="text-3xl md:text-5xl leading-tight text-balance mt-6 mb-6">
+        {post.data.title}
+      </h1>
+      <dl class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm border-t border-line pt-6">
+        <div>
+          <dt class="text-faint mb-1">年份</dt>
+          <dd>{post.data.year ?? formatDate(post.data.date)}</dd>
+        </div>
+        {post.data.role && (
+          <div>
+            <dt class="text-faint mb-1">角色</dt>
+            <dd>{post.data.role}</dd>
+          </div>
+        )}
+        {post.data.tags.length > 0 && (
+          <div>
+            <dt class="text-faint mb-1">标签</dt>
+            <dd>{post.data.tags.join("、")}</dd>
+          </div>
+        )}
+        {post.data.url && (
+          <div>
+            <dt class="text-faint mb-1">链接</dt>
+            <dd>
+              <a href={post.data.url} target="_blank" rel="noopener noreferrer" class="text-accent link-underline">
+                访问 ↗
+              </a>
+            </dd>
+          </div>
+        )}
+      </dl>
+    </header>
+    <div class="reveal prose" style="--reveal-delay:120ms">
+      <Content />
+    </div>
+  </article>
+</BaseLayout>

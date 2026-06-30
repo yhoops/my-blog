@@ -1,0 +1,36 @@
+---
+import { getProjects, formatYear } from "../../lib/posts"
+
+interface Props {
+  props: { heading?: string; limit?: number }
+}
+const { props } = Astro.props
+const all = await getProjects()
+const projects = props.limit ? all.slice(0, props.limit) : all
+---
+
+<section class="mx-auto max-w-3xl px-6 md:px-8 py-12">
+  <h2 class="reveal text-sm uppercase tracking-[0.18em] text-faint mb-8">
+    {props.heading ?? "作品"}
+  </h2>
+  <ul class="flex flex-col">
+    {
+      projects.map((project) => (
+        <li class="reveal border-t border-line">
+          <a href={`/work/${project.id}`} class="group grid grid-cols-[auto_1fr_auto] items-baseline gap-4 py-5">
+            <span class="text-sm text-faint tabular-nums w-12">
+              {project.data.year ?? formatYear(project.data.date)}
+            </span>
+            <div>
+              <h3 class="text-xl md:text-2xl group-hover:text-accent transition-colors duration-300">
+                {project.data.title}
+              </h3>
+              <p class="mt-1 text-muted text-pretty">{project.data.description}</p>
+            </div>
+            <span class="text-sm text-faint hidden sm:block">{project.data.role}</span>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</section>

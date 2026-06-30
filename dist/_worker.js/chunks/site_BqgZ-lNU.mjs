@@ -1,0 +1,17 @@
+globalThis.process ??= {}; globalThis.process.env ??= {};
+const meta = {"title":"林远","description":"写作者与设计师。关于设计、代码与日常思考的随笔。","author":"林远","url":"https://example.pages.dev"};
+const nav = [{"label":"随笔","href":"/writing"},{"label":"作品","href":"/work"},{"label":"关于","href":"/about"}];
+const social = [{"label":"GitHub","href":"https://github.com"},{"label":"Email","href":"mailto:hi@example.com"},{"label":"RSS","href":"/rss.xml"}];
+const theme = {"colors":{"bg":"#f4f1ea","surface":"#ece8df","ink":"#1a1814","muted":"#6f6a60","faint":"#a8a294","accent":"#b4502e","accentSoft":"#d8c9bd","line":"#d9d3c7"},"fonts":{"heading":"\"Newsreader\", Georgia, serif","body":"\"Inter\", system-ui, sans-serif"},"typography":{"baseSize":18,"scale":1.25,"measure":38,"radius":2},"animation":{"duration":700,"distance":24,"ease":"cubic-bezier(0.22, 1, 0.36, 1)","enabled":true}};
+const blocks = [{"id":"blk-hero","type":"hero","visible":true,"props":{"name":"林远","tagline":"写作者 · 界面设计师","intro":"我在设计与代码的交界处工作，关注那些让界面变得克制而优雅的细节。这里记录我的随笔与作品。"}},{"id":"blk-writing","type":"writingList","visible":true,"props":{"heading":"随笔","limit":5,"showDescription":true}},{"id":"blk-work","type":"projectList","visible":true,"props":{"heading":"作品","limit":4}},{"id":"blk-links","type":"linkList","visible":true,"props":{"heading":"在别处","items":[{"label":"GitHub","href":"https://github.com","note":"开源项目与实验"},{"label":"Email","href":"mailto:hi@example.com","note":"想聊聊就写信给我"}]}}];
+const presets = [];
+const siteConfig = {
+  meta,
+  nav,
+  social,
+  theme,
+  blocks,
+  presets,
+};
+
+export { siteConfig as s };
