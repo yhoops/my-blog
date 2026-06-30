@@ -84,6 +84,7 @@ export interface PostFrontmatter {
   description: string
   date: string
   tags: string[]
+  category?: string
   kind: "writing" | "project"
   draft: boolean
   cover?: string

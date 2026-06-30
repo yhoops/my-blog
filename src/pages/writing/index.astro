@@ -3,6 +3,14 @@ import BaseLayout from "../../layouts/BaseLayout.astro"
 import { getWriting, formatDate } from "../../lib/posts"
 
 const posts = await getWriting()
+
+const searchData = posts.map((p) => ({
+  id: p.id,
+  title: p.data.title,
+  description: p.data.description,
+  tags: p.data.tags,
+  category: p.data.category,
+}))
 ---
 
 <BaseLayout title="随笔" description="所有随笔文章">
@@ -12,29 +20,95 @@ const posts = await getWriting()
       关于设计、写作与日常的思考。
     </p>
   </section>
+
+  <!-- Search -->
+  <div class="mx-auto max-w-3xl px-6 md:px-8 pb-8">
+    <input
+      type="search"
+      id="writing-search"
+      placeholder="搜索文章…"
+      aria-label="搜索文章"
+      class="w-full px-4 py-3 text-base rounded-[var(--radius)] border border-line bg-surface text-ink placeholder:text-faint outline-none transition-colors duration-200 focus:border-accent"
+    />
+  </div>
+
   <section class="mx-auto max-w-3xl px-6 md:px-8 pb-16">
-    <ul class="flex flex-col">
+    <ul class="flex flex-col" id="writing-list">
       {
         posts.map((post) => (
-          <li class="reveal border-t border-line">
+          <li
+            class="reveal border-t border-line"
+            data-post-id={post.id}
+          >
             <a href={`/writing/${post.id}`} class="group block py-6">
               <div class="flex items-baseline justify-between gap-4">
                 <h2 class="text-xl md:text-2xl group-hover:text-accent transition-colors duration-300">
                   {post.data.title}
                 </h2>
-                <time class="shrink-0 text-sm text-faint tabular-nums" datetime={post.data.date.toISOString()}>
-                  {formatDate(post.data.date)}
-                </time>
+                <div class="shrink-0 flex items-center gap-3 text-sm">
+                  {post.data.category && post.data.category !== "未分类" && (
+                    <span class="text-xs text-faint bg-surface px-2 py-0.5 rounded">
+                      {post.data.category}
+                    </span>
+                  )}
+                  <time class="text-faint tabular-nums" datetime={post.data.date.toISOString()}>
+                    {formatDate(post.data.date)}
+                  </time>
+                </div>
               </div>
               {post.data.description && (
                 <p class="mt-2 text-muted leading-relaxed text-pretty" style="max-width:var(--measure)">
                   {post.data.description}
                 </p>
               )}
+              {post.data.tags.length > 0 && (
+                <div class="flex flex-wrap gap-2 mt-3">
+                  {post.data.tags.map((tag) => (
+                    <span class="text-xs text-faint">#{tag}</span>
+                  ))}
+                </div>
+              )}
             </a>
           </li>
         ))
       }
     </ul>
+    <div id="writing-no-results" class="hidden py-20 text-center text-muted">
+      <p class="text-lg">没有找到匹配的文章</p>
+      <p class="text-sm mt-1">试试其他关键词？</p>
+    </div>
   </section>
 </BaseLayout>
+
+<!-- Search data: embedded JSON for client-side progressive enhancement -->
+<script id="writing-search-data" type="application/json" set:html={JSON.stringify(searchData)} />
+
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const input = document.getElementById("writing-search")  as HTMLInputElement | null
+    const list = document.getElementById("writing-list")
+    const noResults = document.getElementById("writing-no-results")
+
+    if (!input || !list || !noResults) return
+
+    const items = list.querySelectorAll<HTMLLIElement>("li[data-post-id]")
+
+    input.addEventListener("input", () => {
+      const q = input.value.trim().toLowerCase()
+      let visible = 0
+
+      for (const item of items) {
+        const id = item.getAttribute("data-post-id") ?? ""
+        const title = item.querySelector("h2")?.textContent?.toLowerCase() ?? ""
+        const desc = item.querySelector("p")?.textContent?.toLowerCase() ?? ""
+        const meta = item.textContent?.toLowerCase() ?? ""
+
+        const match = !q || title.includes(q) || desc.includes(q) || meta.includes(q)
+        item.style.display = match ? "" : "none"
+        if (match) visible++
+      }
+
+      noResults.classList.toggle("hidden", visible > 0 || !q)
+    })
+  })
+</script>

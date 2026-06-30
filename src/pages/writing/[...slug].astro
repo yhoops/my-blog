@@ -22,10 +22,29 @@ const { Content } = await render(post)
       <h1 class="text-3xl md:text-5xl leading-tight text-balance mt-6 mb-4">
         {post.data.title}
       </h1>
-      <div class="flex items-center gap-3 text-sm text-faint">
+      <div class="flex items-center gap-3 text-sm text-faint flex-wrap">
         <time datetime={post.data.date.toISOString()}>{formatDate(post.data.date)}</time>
-        {post.data.tags.length > 0 && <span aria-hidden="true">·</span>}
-        <span>{post.data.tags.join("、")}</span>
+        {post.data.category && post.data.category !== "未分类" && (
+          <>
+            <span aria-hidden="true">·</span>
+            <a href={`/writing/category/${encodeURIComponent(post.data.category)}`} class="hover:text-accent link-underline">
+              {post.data.category}
+            </a>
+          </>
+        )}
+        {post.data.tags.length > 0 && (
+          <>
+            <span aria-hidden="true">·</span>
+            {post.data.tags.map((tag, i) => (
+              <span>
+                {i > 0 && <span class="mx-1 text-faint" aria-hidden="true">/</span>}
+                <a href={`/writing/tag/${encodeURIComponent(tag)}`} class="hover:text-accent link-underline">
+                  #{tag}
+                </a>
+              </span>
+            ))}
+          </>
+        )}
       </div>
     </header>
     <div class="reveal prose" style="--reveal-delay:120ms">

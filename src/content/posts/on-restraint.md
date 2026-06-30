@@ -3,6 +3,7 @@ title: 论克制
 description: 为什么最好的设计往往是你看不见的那部分。
 date: 2026-05-12
 tags: ["设计", "随笔"]
+category: "设计"
 kind: writing
 draft: false
 ---

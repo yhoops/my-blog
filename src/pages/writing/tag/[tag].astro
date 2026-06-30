@@ -1,0 +1,51 @@
+---
+import BaseLayout from "../../../layouts/BaseLayout.astro"
+import { getWriting, getPostTags, formatDate } from "../../../lib/posts"
+
+export async function getStaticPaths() {
+  const tags = await getPostTags()
+  return tags.map((tag) => ({
+    params: { tag: encodeURIComponent(tag) },
+    props: { tag },
+  }))
+}
+
+const { tag } = Astro.props
+const allPosts = await getWriting()
+const posts = allPosts.filter((p) => p.data.tags.includes(tag))
+---
+
+<BaseLayout
+  title={`#${tag} — ${(await import("../../../lib/config")).getSiteConfig().meta.title}`}
+  description={`标签“${tag}”下的随笔文章`}
+>
+  <section class="mx-auto max-w-3xl px-6 md:px-8 pt-10 pb-12">
+    <a href="/writing" class="text-sm text-muted hover:text-ink link-underline">← 随笔</a>
+    <h1 class="reveal text-3xl md:text-4xl mt-6 mb-2">#{tag}</h1>
+    <p class="reveal text-muted text-sm" style="--reveal-delay:60ms">共 {posts.length} 篇</p>
+  </section>
+
+  <section class="mx-auto max-w-3xl px-6 md:px-8 pb-16">
+    <ul class="flex flex-col">
+      {posts.map((post, i) => (
+        <li class="reveal border-t border-line" data-post-id={post.id}>
+          <a href={`/writing/${post.id}`} class="group block py-6">
+            <div class="flex items-baseline justify-between gap-4">
+              <h2 class="text-xl md:text-2xl group-hover:text-accent transition-colors duration-300">
+                {post.data.title}
+              </h2>
+              <time class="shrink-0 text-sm text-faint tabular-nums" datetime={post.data.date.toISOString()}>
+                {formatDate(post.data.date)}
+              </time>
+            </div>
+            {post.data.description && (
+              <p class="mt-2 text-muted leading-relaxed text-pretty" style="max-width:var(--measure)">
+                {post.data.description}
+              </p>
+            )}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+</BaseLayout>

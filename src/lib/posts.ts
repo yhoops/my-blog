@@ -17,6 +17,18 @@ export async function getProjects() {
   return posts.filter((p) => p.data.kind === "project")
 }
 
+export async function getPostCategories() {
+  const posts = await getWriting()
+  const cats = new Set(posts.map((p) => p.data.category).filter(Boolean))
+  return [...cats].sort()
+}
+
+export async function getPostTags() {
+  const posts = await getWriting()
+  const tags = new Set(posts.flatMap((p) => p.data.tags))
+  return [...tags].sort()
+}
+
 export function formatDate(date: Date): string {
   return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
