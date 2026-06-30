@@ -16,3 +16,7 @@ node_modules
 # local cloudflare vars
 .dev.vars
 .wrangler
+
+# local dev env vars (never commit)
+.env
+.env.local
