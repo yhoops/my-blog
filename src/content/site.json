@@ -1,19 +1,37 @@
 {
   "meta": {
-    "title": "林远",
+    "title": "yhoops",
     "description": "写作者与设计师。关于设计、代码与日常思考的随笔。",
-    "author": "林远",
+    "author": "yhoops",
     "url": "https://example.pages.dev"
   },
   "nav": [
-    { "label": "随笔", "href": "/writing" },
-    { "label": "作品", "href": "/work" },
-    { "label": "关于", "href": "/about" }
+    {
+      "label": "随笔",
+      "href": "/writing"
+    },
+    {
+      "label": "作品",
+      "href": "/work"
+    },
+    {
+      "label": "关于",
+      "href": "/about"
+    }
   ],
   "social": [
-    { "label": "GitHub", "href": "https://github.com" },
-    { "label": "Email", "href": "mailto:hi@example.com" },
-    { "label": "RSS", "href": "/rss.xml" }
+    {
+      "label": "GitHub",
+      "href": "https://github.com"
+    },
+    {
+      "label": "Email",
+      "href": "mailto:hi@example.com"
+    },
+    {
+      "label": "RSS",
+      "href": "/rss.xml"
+    }
   ],
   "theme": {
     "colors": {
@@ -80,8 +98,16 @@
       "props": {
         "heading": "在别处",
         "items": [
-          { "label": "GitHub", "href": "https://github.com", "note": "开源项目与实验" },
-          { "label": "Email", "href": "mailto:hi@example.com", "note": "想聊聊就写信给我" }
+          {
+            "label": "GitHub",
+            "href": "https://github.com",
+            "note": "开源项目与实验"
+          },
+          {
+            "label": "Email",
+            "href": "mailto:hi@example.com",
+            "note": "想聊聊就写信给我"
+          }
         ]
       }
     }
