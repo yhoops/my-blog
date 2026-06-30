@@ -213,23 +213,7 @@ function entries(node: TreeNode): RenderNode[] {
     background: var(--color-surface);
   }
   .reading-trigger span {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 0.35rem);
-    transform: translateY(-0.25rem);
-    opacity: 0;
-    pointer-events: none;
-    white-space: nowrap;
-    background: var(--color-ink);
-    color: var(--color-bg);
-    border-radius: 999px;
-    padding: 0.22rem 0.5rem;
-    font-size: 0.68rem;
-    transition: opacity 220ms var(--anim-ease), transform 220ms var(--anim-ease);
-  }
-  .knowledge-dock:hover .reading-trigger span {
-    opacity: 1;
-    transform: translateY(0);
+    display: none;
   }
   .dock-scroll {
     flex: 1 1 auto;
@@ -317,6 +301,19 @@ function entries(node: TreeNode): RenderNode[] {
     max-width: min(48rem, calc(100vw - 2rem));
     line-height: 1.9;
   }
+  :global(html.reading-mode) .knowledge-dock {
+    transform: translateX(calc(-100% + 22px));
+    opacity: 0.36;
+    transition: transform 360ms var(--anim-ease), opacity 260ms var(--anim-ease);
+  }
+  :global(html.reading-mode) .knowledge-dock:hover,
+  :global(html.reading-mode) .knowledge-dock:focus-within {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  :global(html.reading-mode) .dock-card {
+    box-shadow: 0 14px 42px rgba(28, 22, 14, 0.16);
+  }
   @media (max-width: 1180px) {
     .knowledge-dock {
       position: sticky;
@@ -336,10 +333,41 @@ function entries(node: TreeNode): RenderNode[] {
   const themeButton = dock?.querySelector<HTMLButtonElement>("[data-theme-toggle]")
   const readingButton = dock?.querySelector<HTMLButtonElement>("[data-reading-toggle]")
   const ripple = dock?.querySelector<HTMLElement>("[data-theme-ripple]")
+  const root = document.documentElement
+  const themeVars = [
+    "--color-bg",
+    "--color-surface",
+    "--color-ink",
+    "--color-muted",
+    "--color-faint",
+    "--color-line",
+    "--color-accent-soft",
+  ] as const
+  const lightTheme = Object.fromEntries(
+    themeVars.map((key) => [key, root.style.getPropertyValue(key) || getComputedStyle(root).getPropertyValue(key)]),
+  )
+  const darkTheme: Record<(typeof themeVars)[number], string> = {
+    "--color-bg": "#14110d",
+    "--color-surface": "#201b15",
+    "--color-ink": "#f2eadc",
+    "--color-muted": "#b7ab98",
+    "--color-faint": "#7f7567",
+    "--color-line": "#3a3026",
+    "--color-accent-soft": "#4b3529",
+  }
+
+  function applyTheme(dark: boolean) {
+    root.classList.toggle("theme-dark", dark)
+    for (const key of themeVars) {
+      root.style.setProperty(key, dark ? darkTheme[key] : lightTheme[key])
+    }
+    const metaTheme = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+    metaTheme?.setAttribute("content", dark ? darkTheme["--color-bg"] : lightTheme["--color-bg"])
+  }
 
   const savedTheme = localStorage.getItem("site-theme")
-  if (savedTheme === "dark") document.documentElement.classList.add("theme-dark")
-  if (localStorage.getItem("reading-mode") === "on") document.documentElement.classList.add("reading-mode")
+  if (savedTheme === "dark") applyTheme(true)
+  if (localStorage.getItem("reading-mode") === "on") root.classList.add("reading-mode")
 
   search?.addEventListener("input", () => {
     const q = search.value.trim().toLowerCase()
@@ -353,21 +381,21 @@ function entries(node: TreeNode): RenderNode[] {
     const rect = themeButton.getBoundingClientRect()
     const x = `${rect.left + rect.width / 2}px`
     const y = `${rect.top + rect.height / 2}px`
-    const nextDark = !document.documentElement.classList.contains("theme-dark")
+    const nextDark = !root.classList.contains("theme-dark")
     ripple?.style.setProperty("--ripple-x", x)
     ripple?.style.setProperty("--ripple-y", y)
-    ripple?.style.setProperty("--ripple-color", nextDark ? "#14110d" : "var(--color-bg)")
+    ripple?.style.setProperty("--ripple-color", nextDark ? darkTheme["--color-bg"] : lightTheme["--color-bg"])
     ripple?.classList.add("spread")
     window.setTimeout(() => {
-      document.documentElement.classList.toggle("theme-dark", nextDark)
+      applyTheme(nextDark)
       localStorage.setItem("site-theme", nextDark ? "dark" : "light")
       ripple?.classList.remove("spread")
     }, 360)
   })
 
   readingButton?.addEventListener("click", () => {
-    const on = !document.documentElement.classList.contains("reading-mode")
-    document.documentElement.classList.toggle("reading-mode", on)
+    const on = !root.classList.contains("reading-mode")
+    root.classList.toggle("reading-mode", on)
     localStorage.setItem("reading-mode", on ? "on" : "off")
   })
 </script>
