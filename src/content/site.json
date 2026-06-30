@@ -1,41 +1,19 @@
 {
   "meta": {
-    "title": "yhoops",
+    "title": "林远",
     "description": "写作者与设计师。关于设计、代码与日常思考的随笔。",
-    "author": "yhoops",
+    "author": "林远",
     "url": "https://example.pages.dev"
   },
   "nav": [
-    {
-      "label": "随笔",
-      "href": "/writing"
-    },
-    {
-      "label": "作品",
-      "href": "/work"
-    },
-    {
-      "label": "关于",
-      "href": "/about"
-    },
-    {
-      "label": "测试",
-      "href": "/test"
-    }
+    { "label": "随笔", "href": "/writing" },
+    { "label": "作品", "href": "/work" },
+    { "label": "关于", "href": "/about" }
   ],
   "social": [
-    {
-      "label": "GitHub",
-      "href": "https://github.com"
-    },
-    {
-      "label": "Email",
-      "href": "mailto:hi@example.com"
-    },
-    {
-      "label": "RSS",
-      "href": "/rss.xml"
-    }
+    { "label": "GitHub", "href": "https://github.com" },
+    { "label": "Email", "href": "mailto:hi@example.com" },
+    { "label": "RSS", "href": "/rss.xml" }
   ],
   "theme": {
     "colors": {
@@ -49,8 +27,8 @@
       "line": "#d9d3c7"
     },
     "fonts": {
-      "heading": "\"Playfair Display\", Georgia, serif",
-      "body": "\"Geist\", system-ui, sans-serif"
+      "heading": "\"Newsreader\", Georgia, serif",
+      "body": "\"Inter\", system-ui, sans-serif"
     },
     "typography": {
       "baseSize": 18,
@@ -71,7 +49,7 @@
       "type": "hero",
       "visible": true,
       "props": {
-        "name": "Yhoops",
+        "name": "林远",
         "tagline": "写作者 · 界面设计师",
         "intro": "我在设计与代码的交界处工作，关注那些让界面变得克制而优雅的细节。这里记录我的随笔与作品。"
       }
@@ -96,31 +74,14 @@
       }
     },
     {
-      "id": "blk-mr09marh-1",
-      "type": "richText",
-      "visible": true,
-      "props": {
-        "heading": "测试",
-        "body": "在这里写点什么。"
-      }
-    },
-    {
       "id": "blk-links",
       "type": "linkList",
       "visible": true,
       "props": {
         "heading": "在别处",
         "items": [
-          {
-            "label": "GitHub",
-            "href": "https://github.com",
-            "note": "开源项目与实验"
-          },
-          {
-            "label": "Email",
-            "href": "mailto:hi@example.com",
-            "note": "想聊聊就写信给我"
-          }
+          { "label": "GitHub", "href": "https://github.com", "note": "开源项目与实验" },
+          { "label": "Email", "href": "mailto:hi@example.com", "note": "想聊聊就写信给我" }
         ]
       }
     }

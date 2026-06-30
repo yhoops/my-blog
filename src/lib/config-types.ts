@@ -39,6 +39,8 @@ export type BlockType =
   | "richText"
   | "linkList"
   | "spacer"
+  | "divider"
+  | "imageRow"
 
 export interface Block {
   id: string

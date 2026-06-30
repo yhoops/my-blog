@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useRef } from "react";
 import {
   DndContext,
   closestCenter,
@@ -6,6 +6,8 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  DragOverlay,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -13,53 +15,348 @@ import {
   verticalListSortingStrategy,
   useSortable,
 } from "@dnd-kit/sortable";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 import type { SiteConfig, Block, BlockType, PresetComponent } from "../../lib/config-types";
 
-/* ---------- Block metadata ---------- */
+/* ─── Metadata ──────────────────────────────────────────────────────────────── */
 
-const BLOCK_META: Record<BlockType, { name: string; desc: string }> = {
-  hero: { name: "主视觉", desc: "姓名、标签与简介" },
-  intro: { name: "引言", desc: "一段开场文字" },
-  writingList: { name: "随笔列表", desc: "最新文章" },
-  projectList: { name: "作品列表", desc: "精选作品" },
-  richText: { name: "富文本", desc: "自由排版的段落" },
-  linkList: { name: "链接列表", desc: "外部链接集合" },
-  spacer: { name: "间隔", desc: "纵向留白" },
+const BLOCK_META: Record<BlockType, { name: string; desc: string; icon: string }> = {
+  hero:        { name: "主视觉",   desc: "姓名与一句话标签",   icon: "◈" },
+  intro:       { name: "引言",     desc: "开场文字段落",       icon: "¶" },
+  writingList: { name: "随笔列表", desc: "最新文章链接",        icon: "≡" },
+  projectList: { name: "作品列表", desc: "精选作品链接",        icon: "◻" },
+  richText:    { name: "富文本",   desc: "自由排版的段落",      icon: "T" },
+  linkList:    { name: "链接列表", desc: "外部链接集合",        icon: "⌘" },
+  spacer:      { name: "留白",     desc: "纵向间距",            icon: "↕" },
+  divider:     { name: "分割线",   desc: "水平分隔线",          icon: "—" },
+  imageRow:    { name: "图片行",   desc: "横向图片组",          icon: "⊞" },
 };
+
+const BLOCK_GROUPS: { label: string; types: BlockType[] }[] = [
+  { label: "核心",   types: ["hero", "intro", "richText"] },
+  { label: "内容",   types: ["writingList", "projectList", "linkList"] },
+  { label: "装饰",   types: ["spacer", "divider", "imageRow"] },
+];
 
 const DEFAULT_PROPS: Record<BlockType, Record<string, any>> = {
-  hero: { name: "你的名字", tagline: "一句话标签", intro: "简短的自我介绍。" },
-  intro: { text: "一段引言。" },
+  hero:        { name: "你的名字", tagline: "一句话标签", intro: "简短的自我介绍。" },
+  intro:       { text: "一段引言，开门见山地表达你在做什么。" },
   writingList: { heading: "随笔", limit: 5, showDescription: true },
   projectList: { heading: "作品", limit: 4 },
-  richText: { heading: "", body: "在这里写点什么。" },
-  linkList: {
-    heading: "在别处",
-    items: [{ label: "GitHub", href: "https://github.com", note: "" }],
-  },
-  spacer: { size: 48 },
+  richText:    { heading: "", body: "在这里写点什么。" },
+  linkList:    { heading: "在别处", items: [{ label: "GitHub", href: "https://github.com", note: "" }] },
+  spacer:      { size: 48 },
+  divider:     { style: "solid", opacity: 30 },
+  imageRow:    { images: [{ src: "", alt: "", caption: "" }], columns: 2 },
 };
 
-let idCounter = 0;
-function newId(prefix = "blk") {
-  idCounter += 1;
-  return `${prefix}-${Date.now().toString(36)}-${idCounter}`;
+/* Friendly Chinese labels for prop keys */
+const PROP_LABELS: Record<string, string> = {
+  name: "姓名", tagline: "标签", intro: "简介", text: "正文",
+  heading: "标题", limit: "显示数量", showDescription: "显示简介",
+  body: "内容", size: "高度（px）", style: "线条样式",
+  opacity: "不透明度（%）", columns: "列数", images: "图片组",
+  items: "链接列表",
+};
+
+let _idSeq = 0;
+function uid(p = "b") { return `${p}-${Date.now().toString(36)}-${++_idSeq}`; }
+
+/* ─── Canvas block preview card ────────────────────────────────────────────── */
+
+function BlockPreviewCard({ block, active }: { block: Block; active: boolean }) {
+  const meta = BLOCK_META[block.type];
+  const p = block.props;
+
+  const preview = (() => {
+    switch (block.type) {
+      case "hero":
+        return (
+          <div style={{ padding: "14px 16px" }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "var(--s-text)" }}>{p.name || "姓名"}</div>
+            <div style={{ fontSize: 11, color: "var(--s-muted)", marginTop: 2 }}>{p.tagline || "标签"}</div>
+            {p.intro && <div style={{ fontSize: 11, color: "var(--s-muted)", marginTop: 6, lineHeight: 1.5 }}>{p.intro}</div>}
+          </div>
+        );
+      case "intro":
+        return (
+          <div style={{ padding: "10px 16px", fontSize: 11, color: "var(--s-muted)", lineHeight: 1.6 }}>
+            {p.text || "引言…"}
+          </div>
+        );
+      case "writingList":
+      case "projectList":
+        return (
+          <div style={{ padding: "10px 16px" }}>
+            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--s-muted)", marginBottom: 8 }}>
+              {p.heading || meta.name}
+            </div>
+            {[1, 2, 3].slice(0, Math.min(p.limit || 3, 3)).map((i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid var(--s-border)" }}>
+                <div style={{ width: "55%", height: 8, background: "var(--s-border)", borderRadius: 4 }} />
+                <div style={{ width: "18%", height: 8, background: "var(--s-border)", borderRadius: 4, opacity: 0.6 }} />
+              </div>
+            ))}
+          </div>
+        );
+      case "richText":
+        return (
+          <div style={{ padding: "10px 16px" }}>
+            {p.heading && <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--s-muted)", marginBottom: 6 }}>{p.heading}</div>}
+            <div style={{ fontSize: 11, color: "var(--s-muted)", lineHeight: 1.6 }}>
+              {(p.body || "").slice(0, 100)}{(p.body || "").length > 100 ? "…" : ""}
+            </div>
+          </div>
+        );
+      case "linkList":
+        return (
+          <div style={{ padding: "10px 16px" }}>
+            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--s-muted)", marginBottom: 8 }}>{p.heading}</div>
+            {(Array.isArray(p.items) ? p.items : []).slice(0, 3).map((item: any, i: number) => (
+              <div key={i} style={{ fontSize: 11, color: "var(--s-text)", padding: "3px 0" }}>↗ {item.label}</div>
+            ))}
+          </div>
+        );
+      case "spacer":
+        return (
+          <div style={{ height: Math.max(12, Math.min(p.size / 3, 40)), display: "flex", alignItems: "center", justifyContent: "center", padding: "0 16px" }}>
+            <div style={{ borderTop: "1px dashed var(--s-border)", width: "100%", position: "relative" }}>
+              <span style={{ position: "absolute", left: "50%", transform: "translate(-50%, -50%)", background: "var(--s-panel)", padding: "0 6px", fontSize: 9, color: "var(--s-muted)" }}>{p.size}px</span>
+            </div>
+          </div>
+        );
+      case "divider":
+        return (
+          <div style={{ padding: "12px 16px" }}>
+            <hr style={{ border: "none", borderTop: `1px ${p.style || "solid"} var(--s-border)`, opacity: (p.opacity || 30) / 100 }} />
+          </div>
+        );
+      case "imageRow":
+        return (
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${p.columns || 2}, 1fr)`, gap: 4, padding: "10px 16px" }}>
+            {(Array.isArray(p.images) ? p.images : [{}]).slice(0, p.columns || 2).map((_: any, i: number) => (
+              <div key={i} style={{ background: "var(--s-border)", borderRadius: 4, aspectRatio: "4/3", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "var(--s-muted)" }}>⊞</div>
+            ))}
+          </div>
+        );
+      default:
+        return null;
+    }
+  })();
+
+  return (
+    <div
+      className={`canvas-block-card ${active ? "canvas-block-card--active" : ""} ${!block.visible ? "canvas-block-card--hidden" : ""}`}
+    >
+      <div className="canvas-block-label">
+        <span className="canvas-block-icon">{meta.icon}</span>
+        <span>{meta.name}</span>
+        {!block.visible && <span className="canvas-block-badge">隐藏</span>}
+      </div>
+      {preview}
+    </div>
+  );
 }
 
-/* ---------- Post data shape ---------- */
+/* ─── Sortable canvas row ───────────────────────────────────────────────────── */
 
-interface PostItem {
-  slug: string;
-  title: string;
-  description: string;
-  date: string;
-  kind: "writing" | "project";
-  year?: string;
-  role?: string;
+function SortableCanvasBlock({
+  block,
+  active,
+  onSelect,
+  onToggle,
+  onDuplicate,
+  onDelete,
+}: {
+  block: Block;
+  active: boolean;
+  onSelect: () => void;
+  onToggle: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: block.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0 : 1,
+        position: "relative",
+      }}
+      className={`canvas-block-wrap ${active ? "canvas-block-wrap--active" : ""}`}
+      onClick={onSelect}
+    >
+      {/* drag handle bar */}
+      <div className="canvas-block-handle" {...attributes} {...listeners} onClick={(e) => e.stopPropagation()}>
+        <DragHandleIcon />
+      </div>
+
+      <BlockPreviewCard block={block} active={active} />
+
+      {/* action row — only visible on hover/active */}
+      <div className="canvas-block-actions" onClick={(e) => e.stopPropagation()}>
+        <button className="cba-btn" onClick={onToggle} title={block.visible ? "隐藏" : "显示"}>
+          {block.visible ? <EyeIcon /> : <EyeOffIcon />}
+        </button>
+        <button className="cba-btn" onClick={onDuplicate} title="复制">
+          <CopyIcon />
+        </button>
+        <button className="cba-btn cba-btn--danger" onClick={onDelete} title="删除">
+          <TrashIcon />
+        </button>
+      </div>
+    </div>
+  );
 }
 
-/* ============================ MAIN COMPONENT ============================ */
+/* ─── Prop editor panel ─────────────────────────────────────────────────────── */
+
+function PropEditor({
+  block,
+  onChange,
+  onClose,
+  onSavePreset,
+}: {
+  block: Block;
+  onChange: (b: Block) => void;
+  onClose: () => void;
+  onSavePreset: (b: Block) => void;
+}) {
+  const meta = BLOCK_META[block.type];
+
+  function set(key: string, value: any) {
+    onChange({ ...block, props: { ...block.props, [key]: value } });
+  }
+
+  function renderField(key: string, value: any) {
+    const label = PROP_LABELS[key] || key;
+
+    if (typeof value === "boolean") {
+      return (
+        <div className="field" key={key}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <label>{label}</label>
+            <button className={`toggle ${value ? "on" : ""}`} onClick={() => set(key, !value)} aria-label={label} />
+          </div>
+        </div>
+      );
+    }
+    if (typeof value === "number") {
+      return (
+        <div className="field" key={key}>
+          <label>{label}</label>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="range" min={key === "limit" ? 1 : key === "columns" ? 1 : key === "opacity" ? 0 : 0} max={key === "limit" ? 20 : key === "columns" ? 4 : key === "opacity" ? 100 : 300} step={1} value={value} onChange={(e) => set(key, parseFloat(e.target.value))} style={{ flex: 1 }} />
+            <span className="range-val">{value}{key === "opacity" ? "%" : key === "size" ? "px" : ""}</span>
+          </div>
+        </div>
+      );
+    }
+    if (key === "style" && block.type === "divider") {
+      return (
+        <div className="field" key={key}>
+          <label>{label}</label>
+          <select className="select" value={value} onChange={(e) => set(key, e.target.value)}>
+            <option value="solid">实线</option>
+            <option value="dashed">虚线</option>
+            <option value="dotted">点线</option>
+          </select>
+        </div>
+      );
+    }
+    if (Array.isArray(value)) {
+      // Special editor for linkList items
+      if (key === "items" && block.type === "linkList") {
+        return (
+          <div className="field" key={key}>
+            <label>{label}</label>
+            {value.map((item: any, i: number) => (
+              <div key={i} className="array-item">
+                <input className="input" placeholder="标签" value={item.label || ""} onChange={(e) => { const v = [...value]; v[i] = { ...v[i], label: e.target.value }; set(key, v); }} />
+                <input className="input" placeholder="链接 https://…" value={item.href || ""} onChange={(e) => { const v = [...value]; v[i] = { ...v[i], href: e.target.value }; set(key, v); }} style={{ marginTop: 4 }} />
+                <input className="input" placeholder="备注（可选）" value={item.note || ""} onChange={(e) => { const v = [...value]; v[i] = { ...v[i], note: e.target.value }; set(key, v); }} style={{ marginTop: 4 }} />
+                <button className="btn btn-danger" style={{ marginTop: 4 }} onClick={() => set(key, value.filter((_: any, j: number) => j !== i))}>删除此项</button>
+              </div>
+            ))}
+            <button className="btn" style={{ marginTop: 6, width: "100%" }} onClick={() => set(key, [...value, { label: "", href: "", note: "" }])}>+ 添加链接</button>
+          </div>
+        );
+      }
+      // Special editor for imageRow images
+      if (key === "images" && block.type === "imageRow") {
+        return (
+          <div className="field" key={key}>
+            <label>{label}</label>
+            {value.map((img: any, i: number) => (
+              <div key={i} className="array-item">
+                <input className="input" placeholder="图片 URL" value={img.src || ""} onChange={(e) => { const v = [...value]; v[i] = { ...v[i], src: e.target.value }; set(key, v); }} />
+                <input className="input" placeholder="Alt 描述" value={img.alt || ""} onChange={(e) => { const v = [...value]; v[i] = { ...v[i], alt: e.target.value }; set(key, v); }} style={{ marginTop: 4 }} />
+                <input className="input" placeholder="说明文字（可选）" value={img.caption || ""} onChange={(e) => { const v = [...value]; v[i] = { ...v[i], caption: e.target.value }; set(key, v); }} style={{ marginTop: 4 }} />
+                <button className="btn btn-danger" style={{ marginTop: 4 }} onClick={() => set(key, value.filter((_: any, j: number) => j !== i))}>删除</button>
+              </div>
+            ))}
+            <button className="btn" style={{ marginTop: 6, width: "100%" }} onClick={() => set(key, [...value, { src: "", alt: "", caption: "" }])}>+ 添加图片</button>
+          </div>
+        );
+      }
+      // fallback: raw JSON
+      return (
+        <div className="field" key={key}>
+          <label>{label}</label>
+          <textarea
+            className="textarea"
+            style={{ minHeight: 100, fontFamily: "monospace", fontSize: 12 }}
+            defaultValue={JSON.stringify(value, null, 2)}
+            onBlur={(e) => { try { set(key, JSON.parse(e.target.value)); } catch {} }}
+          />
+        </div>
+      );
+    }
+    if (key === "intro" || key === "body" || key === "text") {
+      return (
+        <div className="field" key={key}>
+          <label>{label}</label>
+          <textarea className="textarea" style={{ minHeight: 100 }} value={value as string} onChange={(e) => set(key, e.target.value)} />
+        </div>
+      );
+    }
+    return (
+      <div className="field" key={key}>
+        <label>{label}</label>
+        <input className="input" value={value as string} onChange={(e) => set(key, e.target.value)} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="prop-editor">
+      <div className="prop-editor-head">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 18, opacity: 0.7 }}>{meta.icon}</span>
+          <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{meta.name}</span>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="btn" style={{ fontSize: "0.75rem", padding: "0.3rem 0.6rem" }} onClick={() => onSavePreset(block)}>
+            存为预设
+          </button>
+          <button className="btn" style={{ padding: "0.3rem 0.55rem" }} onClick={onClose} aria-label="关闭">
+            ✕
+          </button>
+        </div>
+      </div>
+      <div className="prop-editor-body">
+        {Object.entries(block.props).map(([k, v]) => renderField(k, v))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Main LayoutBuilder ────────────────────────────────────────────────────── */
 
 export default function LayoutBuilder({
   config,
@@ -68,882 +365,284 @@ export default function LayoutBuilder({
   config: SiteConfig;
   onChange: (c: SiteConfig) => void;
 }) {
-  const [editing, setEditing] = useState<Block | null>(null);
-  const [viewMode, setViewMode] = useState<"visual" | "list">("visual");
-  const [posts, setPosts] = useState<PostItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [viewport, setViewport] = useState<"desktop" | "mobile">("desktop");
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [presetTab, setPresetTab] = useState<"library" | "my">("library");
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
-  // Fetch posts for visual preview of writingList / projectList
-  useEffect(() => {
-    fetch("/api/posts")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.ok && d.posts) setPosts(d.posts);
-      })
-      .catch(() => {});
-  }, []);
+  const selectedBlock = config.blocks.find((b) => b.id === selectedId) ?? null;
+  const activeBlock = activeId ? config.blocks.find((b) => b.id === activeId) : null;
 
-  function setBlocks(blocks: Block[]) {
-    onChange({ ...config, blocks });
-  }
+  function setBlocks(blocks: Block[]) { onChange({ ...config, blocks }); }
 
+  function onDragStart(e: DragStartEvent) { setActiveId(e.active.id as string); }
   function onDragEnd(e: DragEndEvent) {
+    setActiveId(null);
     const { active, over } = e;
     if (!over || active.id === over.id) return;
-    const oldIndex = config.blocks.findIndex((b) => b.id === active.id);
-    const newIndex = config.blocks.findIndex((b) => b.id === over.id);
-    setBlocks(arrayMove(config.blocks, oldIndex, newIndex));
+    const oi = config.blocks.findIndex((b) => b.id === active.id);
+    const ni = config.blocks.findIndex((b) => b.id === over.id);
+    setBlocks(arrayMove(config.blocks, oi, ni));
   }
 
-  function toggle(id: string) {
-    setBlocks(
-      config.blocks.map((b) => (b.id === id ? { ...b, visible: !b.visible } : b)),
-    );
-  }
-  function remove(id: string) {
-    setBlocks(config.blocks.filter((b) => b.id !== id));
-  }
   function addBlock(type: BlockType) {
-    const block: Block = {
-      id: newId(),
-      type,
-      visible: true,
-      props: structuredClone(DEFAULT_PROPS[type]),
-    };
+    const block: Block = { id: uid(), type, visible: true, props: structuredClone(DEFAULT_PROPS[type]) };
     setBlocks([...config.blocks, block]);
-    setEditing(block);
+    setSelectedId(block.id);
   }
+
   function addFromPreset(preset: PresetComponent) {
-    const block: Block = {
-      id: newId(),
-      type: preset.baseType,
-      visible: true,
-      props: structuredClone(preset.defaultProps),
-    };
+    const block: Block = { id: uid(), type: preset.baseType, visible: true, props: structuredClone(preset.defaultProps) };
     setBlocks([...config.blocks, block]);
+    setSelectedId(block.id);
   }
-  function saveBlock(updated: Block) {
+
+  function duplicateBlock(id: string) {
+    const src = config.blocks.find((b) => b.id === id);
+    if (!src) return;
+    const dup: Block = { ...structuredClone(src), id: uid() };
+    const idx = config.blocks.findIndex((b) => b.id === id);
+    const next = [...config.blocks];
+    next.splice(idx + 1, 0, dup);
+    setBlocks(next);
+    setSelectedId(dup.id);
+  }
+
+  function toggleVisible(id: string) {
+    setBlocks(config.blocks.map((b) => (b.id === id ? { ...b, visible: !b.visible } : b)));
+  }
+
+  function removeBlock(id: string) {
+    setBlocks(config.blocks.filter((b) => b.id !== id));
+    if (selectedId === id) setSelectedId(null);
+  }
+
+  function updateBlock(updated: Block) {
     setBlocks(config.blocks.map((b) => (b.id === updated.id ? updated : b)));
-    setEditing(null);
   }
+
   function saveAsPreset(block: Block) {
-    const name = prompt("为这个预设组件命名：");
+    const name = prompt("为这个预设命名：");
     if (!name) return;
     const preset: PresetComponent = {
-      id: newId("preset"),
+      id: uid("preset"),
       name,
       baseType: block.type,
       defaultProps: structuredClone(block.props),
     };
     onChange({ ...config, presets: [...(config.presets || []), preset] });
   }
+
   function removePreset(id: string) {
-    onChange({
-      ...config,
-      presets: (config.presets || []).filter((p) => p.id !== id),
-    });
+    onChange({ ...config, presets: (config.presets || []).filter((p) => p.id !== id) });
   }
 
   return (
-    <>
-      {/* ===== Mode toggle ===== */}
-      <div className="panel" style={{ padding: "0.6rem 1.25rem" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: "0.82rem", color: "var(--s-muted)" }}>
-            显示模式
-          </span>
-          <button
-            className={`btn`}
-            style={{
-              ...modeBtnStyle,
-              background: viewMode === "list" ? "var(--s-accent)" : "var(--s-panel-2)",
-              color: viewMode === "list" ? "#fff" : "var(--s-text)",
-              borderColor: viewMode === "list" ? "var(--s-accent)" : "var(--s-border)",
-            }}
-            onClick={() => setViewMode("list")}
-          >
-            ☰ 列表
-          </button>
-          <button
-            className={`btn`}
-            style={{
-              ...modeBtnStyle,
-              background: viewMode === "visual" ? "var(--s-accent)" : "var(--s-panel-2)",
-              color: viewMode === "visual" ? "#fff" : "var(--s-text)",
-              borderColor: viewMode === "visual" ? "var(--s-accent)" : "var(--s-border)",
-            }}
-            onClick={() => setViewMode("visual")}
-          >
-            ◉ 可视化
-          </button>
-          <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "var(--s-muted)" }}>
-            {config.blocks.filter((b) => b.visible).length} / {config.blocks.length} 个区块可见
-          </span>
+    <div className="lb-root">
+      {/* ── Left sidebar: block library ── */}
+      <aside className="lb-sidebar">
+        <div className="lb-sidebar-tabs">
+          <button className={`lb-stab ${presetTab === "library" ? "active" : ""}`} onClick={() => setPresetTab("library")}>区块库</button>
+          <button className={`lb-stab ${presetTab === "my" ? "active" : ""}`} onClick={() => setPresetTab("my")}>我的预设</button>
         </div>
-      </div>
 
-      {/* ===== Block list ===== */}
-      <div className="panel">
-        <h3>
-          {viewMode === "list"
-            ? "首页区块（拖拽排序）"
-            : "可视化布局（拖拽排序）"}
-        </h3>
-
-        {config.blocks.length === 0 ? (
-          <p className="hint">还没有区块，从下方添加。</p>
-        ) : viewMode === "list" ? (
-          /* -- List view (original) -- */
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={onDragEnd}
-          >
-            <SortableContext
-              items={config.blocks.map((b) => b.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              {config.blocks.map((block) => (
-                <SortableBlockItem
-                  key={block.id}
-                  block={block}
-                  onToggle={() => toggle(block.id)}
-                  onEdit={() => setEditing(block)}
-                  onRemove={() => remove(block.id)}
-                  onSavePreset={() => saveAsPreset(block)}
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
-        ) : (
-          /* -- Visual view -- */
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={onDragEnd}
-          >
-            <SortableContext
-              items={config.blocks.map((b) => b.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              {config.blocks.map((block) => (
-                <SortableVisualBlock
-                  key={block.id}
-                  block={block}
-                  theme={config.theme}
-                  posts={posts}
-                  onToggle={() => toggle(block.id)}
-                  onEdit={() => setEditing(block)}
-                  onRemove={() => remove(block.id)}
-                  onSavePreset={() => saveAsPreset(block)}
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
-        )}
-      </div>
-
-      {/* ===== Add block ===== */}
-      <div className="panel">
-        <h3>添加区块</h3>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
-          {(Object.keys(BLOCK_META) as BlockType[]).map((type) => (
-            <button key={type} className="btn" onClick={() => addBlock(type)}>
-              + {BLOCK_META[type].name}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ===== Presets ===== */}
-      <div className="panel">
-        <h3>我的预设组件</h3>
-        <p className="hint" style={{ marginTop: 0, marginBottom: "0.75rem" }}>
-          在任一区块上点击「存为预设」，即可保存配置好的组件，随时复用。
-        </p>
-        {(config.presets || []).length === 0 ? (
-          <p className="hint">暂无预设。</p>
-        ) : (
-          (config.presets || []).map((preset) => (
-            <div className="block-item" key={preset.id}>
-              <span className="b-title">{preset.name}</span>
-              <span className="b-type">{BLOCK_META[preset.baseType].name}</span>
-              <button className="btn" onClick={() => addFromPreset(preset)}>
-                插入
-              </button>
-              <button
-                className="btn btn-danger"
-                onClick={() => removePreset(preset.id)}
-              >
-                删除
-              </button>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* ===== Block editor modal ===== */}
-      {editing && (
-        <BlockEditor
-          block={editing}
-          onClose={() => setEditing(null)}
-          onSave={saveBlock}
-        />
-      )}
-    </>
-  );
-}
-
-/* ======================== LIST-VIEW SORTABLE BLOCK ======================== */
-
-function SortableBlockItem({
-  block,
-  onToggle,
-  onEdit,
-  onRemove,
-  onSavePreset,
-}: {
-  block: Block;
-  onToggle: () => void;
-  onEdit: () => void;
-  onRemove: () => void;
-  onSavePreset: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: block.id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.6 : 1,
-  };
-  return (
-    <div className="block-item" ref={setNodeRef} style={style}>
-      <span className="handle" {...attributes} {...listeners}>
-        ⠿
-      </span>
-      <span className="b-title" style={{ opacity: block.visible ? 1 : 0.45 }}>
-        {BLOCK_META[block.type].name}
-      </span>
-      <span className="b-type">{BLOCK_META[block.type].desc}</span>
-      <button className="btn" onClick={onEdit}>
-        编辑
-      </button>
-      <button className="btn" onClick={onSavePreset}>
-        存为预设
-      </button>
-      <button
-        className={`toggle ${block.visible ? "on" : ""}`}
-        onClick={onToggle}
-        aria-label="显示/隐藏"
-      />
-      <button className="btn btn-danger" onClick={onRemove}>
-        ✕
-      </button>
-    </div>
-  );
-}
-
-/* ==================== VISUAL-VIEW SORTABLE BLOCK ==================== */
-
-function SortableVisualBlock({
-  block,
-  theme,
-  posts,
-  onToggle,
-  onEdit,
-  onRemove,
-  onSavePreset,
-}: {
-  block: Block;
-  theme: SiteConfig["theme"];
-  posts: PostItem[];
-  onToggle: () => void;
-  onEdit: () => void;
-  onRemove: () => void;
-  onSavePreset: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: block.id });
-
-  const [hovered, setHovered] = useState(false);
-
-  return (
-    <div
-      ref={setNodeRef}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.5 : 1,
-        marginBottom: 12,
-        borderRadius: 10,
-        border: block.visible
-          ? "1px solid var(--s-border)"
-          : "1px dashed rgba(154,154,163,0.35)",
-        background: "var(--s-panel-2)",
-        overflow: "hidden",
-        position: "relative",
-        ...(isDragging
-          ? { boxShadow: "0 8px 32px rgba(0,0,0,0.4)", zIndex: 50 }
-          : {}),
-      }}
-    >
-      {/* --- Top bar: drag handle + block name + actions --- */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          padding: "0.5rem 0.75rem",
-          borderBottom: "1px solid var(--s-border)",
-          background: "var(--s-panel)",
-        }}
-      >
-        {/* Drag handle */}
-        <span
-          {...attributes}
-          {...listeners}
-          style={{
-            cursor: "grab",
-            color: "var(--s-muted)",
-            fontSize: "1rem",
-            userSelect: "none",
-            display: "flex",
-            alignItems: "center",
-            lineHeight: 1,
-          }}
-        >
-          ⠿
-        </span>
-
-        <span
-          style={{
-            fontSize: "0.82rem",
-            fontWeight: 600,
-            color: block.visible ? "var(--s-text)" : "var(--s-muted)",
-          }}
-        >
-          {BLOCK_META[block.type].name}
-        </span>
-        <span style={{ fontSize: "0.7rem", color: "var(--s-muted)" }}>
-          {BLOCK_META[block.type].desc}
-        </span>
-
-        <div style={{ flex: 1 }} />
-
-        {/* Actions — always visible */}
-        <button className="btn" onClick={onEdit} style={{ padding: "0.3rem 0.6rem", fontSize: "0.75rem" }}>
-          编辑
-        </button>
-        <button className="btn" onClick={onSavePreset} style={{ padding: "0.3rem 0.6rem", fontSize: "0.75rem" }}>
-          预设
-        </button>
-        <button
-          className={`toggle ${block.visible ? "on" : ""}`}
-          onClick={onToggle}
-          aria-label="显示/隐藏"
-          style={{ transform: "scale(0.8)" }}
-        />
-        <button
-          className="btn btn-danger"
-          onClick={onRemove}
-          style={{ padding: "0.3rem 0.6rem", fontSize: "0.75rem" }}
-        >
-          ✕
-        </button>
-      </div>
-
-      {/* --- Block preview rendered with public-site theme --- */}
-      <div
-        style={{
-          background: block.visible ? theme.colors.bg : "transparent",
-          transition: "background 200ms",
-          opacity: block.visible ? 1 : 0.35,
-          pointerEvents: "none",
-          userSelect: "none",
-          maxHeight: 280,
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
-        {/* Fade-out at bottom for long blocks */}
-        <div
-          style={{
-            position: "absolute",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 48,
-            background: `linear-gradient(transparent, ${block.visible ? theme.colors.bg : "var(--s-panel-2)"})`,
-            zIndex: 2,
-            pointerEvents: "none",
-          }}
-        />
-
-        {block.visible ? (
-          <PreviewBlockContent block={block} theme={theme} posts={posts} />
-        ) : (
-          <div
-            style={{
-              padding: "2rem",
-              textAlign: "center",
-              color: "var(--s-muted)",
-              fontSize: "0.82rem",
-            }}
-          >
-            此区块已隐藏，切换上方的 toggle 可恢复显示
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ==================== BLOCK PREVIEW RENDERERS ==================== */
-
-function PreviewBlockContent({
-  block,
-  theme,
-  posts,
-}: {
-  block: Block;
-  theme: SiteConfig["theme"];
-  posts: PostItem[];
-}) {
-  const p = block.props;
-  switch (block.type) {
-    case "hero":
-      return <PreviewHero props={p} theme={theme} />;
-    case "writingList":
-      return <PreviewWritingList props={p} theme={theme} posts={posts} />;
-    case "projectList":
-      return <PreviewProjectList props={p} theme={theme} posts={posts} />;
-    case "linkList":
-      return <PreviewLinkList props={p} theme={theme} />;
-    case "richText":
-      return <PreviewRichText props={p} theme={theme} />;
-    case "spacer":
-      return <PreviewSpacer props={p} theme={theme} />;
-    default:
-      return <div style={{ padding: 24, color: theme.colors.muted }}>未知区块</div>;
-  }
-}
-
-/* ------------ Hero ------------ */
-
-function PreviewHero({
-  props,
-  theme,
-}: {
-  props: Record<string, any>;
-  theme: SiteConfig["theme"];
-}) {
-  return (
-    <div
-      style={{
-        padding: "2rem 1.5rem 3rem",
-        color: theme.colors.ink,
-        fontFamily: theme.fonts.body,
-      }}
-    >
-      <p
-        style={{
-          fontSize: 12,
-          color: theme.colors.accent,
-          letterSpacing: "0.05em",
-          margin: "0 0 12px",
-        }}
-      >
-        {props.tagline}
-      </p>
-      <h1
-        style={{
-          fontSize: 28,
-          fontFamily: theme.fonts.heading,
-          fontWeight: 400,
-          lineHeight: 1.05,
-          margin: "0 0 16px",
-          color: theme.colors.ink,
-        }}
-      >
-        {props.name}
-      </h1>
-      <p style={{ fontSize: 15, lineHeight: 1.6, color: theme.colors.muted, margin: 0 }}>
-        {props.intro}
-      </p>
-    </div>
-  );
-}
-
-/* ------------ Writing list ------------ */
-
-function PreviewWritingList({
-  props,
-  theme,
-  posts,
-}: {
-  props: Record<string, any>;
-  theme: SiteConfig["theme"];
-  posts: PostItem[];
-}) {
-  const items = posts.filter((p) => p.kind === "writing").slice(0, props.limit || 3);
-
-  return (
-    <PreviewSection theme={theme}>
-      <PreviewHeading theme={theme} label={props.heading || "随笔"} />
-      {items.length === 0 ? (
-        <p style={{ fontSize: 13, color: theme.colors.muted, margin: 0 }}>
-          （暂无随笔文章）
-        </p>
-      ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {items.map((post) => (
-            <li
-              key={post.slug}
-              style={{
-                borderTop: `1px solid ${theme.colors.line}`,
-                padding: "0.75rem 0",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "baseline",
-                gap: 12,
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 15,
-                  fontFamily: theme.fonts.heading,
-                  color: theme.colors.ink,
-                }}
-              >
-                {post.title}
-              </span>
-              <span style={{ fontSize: 11, color: theme.colors.faint, flexShrink: 0 }}>
-                {fmtShort(post.date)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </PreviewSection>
-  );
-}
-
-/* ------------ Project list ------------ */
-
-function PreviewProjectList({
-  props,
-  theme,
-  posts,
-}: {
-  props: Record<string, any>;
-  theme: SiteConfig["theme"];
-  posts: PostItem[];
-}) {
-  const items = posts.filter((p) => p.kind === "project").slice(0, props.limit || 3);
-
-  return (
-    <PreviewSection theme={theme}>
-      <PreviewHeading theme={theme} label={props.heading || "作品"} />
-      {items.length === 0 ? (
-        <p style={{ fontSize: 13, color: theme.colors.muted, margin: 0 }}>
-          （暂无作品）
-        </p>
-      ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {items.map((p) => (
-            <li
-              key={p.slug}
-              style={{
-                borderTop: `1px solid ${theme.colors.line}`,
-                padding: "0.75rem 0",
-                display: "grid",
-                gridTemplateColumns: "auto 1fr",
-                gap: 12,
-              }}
-            >
-              <span style={{ fontSize: 11, color: theme.colors.faint, fontVariantNumeric: "tabular-nums" }}>
-                {p.year || yr(p.date)}
-              </span>
-              <div>
-                <span style={{ fontSize: 15, fontFamily: theme.fonts.heading, color: theme.colors.ink }}>
-                  {p.title}
-                </span>
-                {p.description && (
-                  <p style={{ fontSize: 12, color: theme.colors.muted, margin: "2px 0 0", lineHeight: 1.4 }}>
-                    {p.description}
-                  </p>
-                )}
+        {presetTab === "library" && (
+          <div className="lb-library">
+            {BLOCK_GROUPS.map((group) => (
+              <div key={group.label} className="lb-group">
+                <div className="lb-group-label">{group.label}</div>
+                {group.types.map((type) => (
+                  <button key={type} className="lb-block-btn" onClick={() => addBlock(type)}>
+                    <span className="lb-block-icon">{BLOCK_META[type].icon}</span>
+                    <div>
+                      <div className="lb-block-name">{BLOCK_META[type].name}</div>
+                      <div className="lb-block-desc">{BLOCK_META[type].desc}</div>
+                    </div>
+                  </button>
+                ))}
               </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </PreviewSection>
-  );
-}
-
-/* ------------ Link list ------------ */
-
-function PreviewLinkList({
-  props,
-  theme,
-}: {
-  props: Record<string, any>;
-  theme: SiteConfig["theme"];
-}) {
-  const items: { label: string; href: string; note?: string }[] = props.items ?? [];
-
-  return (
-    <PreviewSection theme={theme}>
-      <PreviewHeading theme={theme} label={props.heading || "在别处"} />
-      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-        {items.map((item, i) => (
-          <li
-            key={i}
-            style={{
-              borderTop: `1px solid ${theme.colors.line}`,
-              padding: "0.75rem 0",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "baseline",
-            }}
-          >
-            <span style={{ fontSize: 15, fontFamily: theme.fonts.heading, color: theme.colors.ink }}>
-              {item.label}
-            </span>
-            {item.note && (
-              <span style={{ fontSize: 11, color: theme.colors.muted }}>{item.note}</span>
-            )}
-          </li>
-        ))}
-      </ul>
-    </PreviewSection>
-  );
-}
-
-/* ------------ Rich text ------------ */
-
-function PreviewRichText({
-  props,
-  theme,
-}: {
-  props: Record<string, any>;
-  theme: SiteConfig["theme"];
-}) {
-  const body: string = props.body || props.text || "";
-  const paras = body.split("\n\n").filter(Boolean).slice(0, 3);
-
-  return (
-    <PreviewSection theme={theme}>
-      {props.heading && <PreviewHeading theme={theme} label={props.heading} />}
-      <div style={{ lineHeight: 1.6, color: theme.colors.ink, fontSize: 13 }}>
-        {paras.map((p: string, i: number) => (
-          <p key={i} style={{ margin: "0.8em 0" }}>
-            {p}
-          </p>
-        ))}
-        {body.split("\n\n").filter(Boolean).length > 3 && (
-          <p style={{ color: theme.colors.faint, fontSize: 12, fontStyle: "italic" }}>
-            …（更多内容在页面上完整显示）
-          </p>
+            ))}
+          </div>
         )}
-      </div>
-    </PreviewSection>
-  );
-}
 
-/* ------------ Spacer ------------ */
-
-function PreviewSpacer({
-  props,
-  theme,
-}: {
-  props: Record<string, any>;
-  theme: SiteConfig["theme"];
-}) {
-  const sizes: Record<string, string> = { sm: "24px", md: "48px", lg: "80px" };
-  const height = sizes[props.size || "md"];
-
-  return (
-    <div
-      style={{
-        padding: `0 1.5rem`,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 12,
-      }}
-    >
-      <div style={{ flex: 1, height: 1, background: theme.colors.line }} />
-      <span style={{ fontSize: 11, color: theme.colors.faint, whiteSpace: "nowrap" }}>
-        间隔 {height}
-      </span>
-      <div style={{ flex: 1, height: 1, background: theme.colors.line }} />
-    </div>
-  );
-}
-
-/* ------------ Shared preview helpers ------------ */
-
-function PreviewSection({
-  theme,
-  children,
-}: {
-  theme: SiteConfig["theme"];
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      style={{
-        padding: "1.25rem 1.5rem",
-        color: theme.colors.ink,
-        fontFamily: theme.fonts.body,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function PreviewHeading({
-  theme,
-  label,
-}: {
-  theme: SiteConfig["theme"];
-  label: string;
-}) {
-  return (
-    <p
-      style={{
-        fontSize: 11,
-        textTransform: "uppercase",
-        letterSpacing: "0.18em",
-        color: theme.colors.faint,
-        margin: "0 0 1rem",
-        fontFamily: theme.fonts.body,
-      }}
-    >
-      {label}
-    </p>
-  );
-}
-
-/* ============================ BLOCK EDITOR MODAL ============================ */
-
-function BlockEditor({
-  block,
-  onClose,
-  onSave,
-}: {
-  block: Block;
-  onClose: () => void;
-  onSave: (b: Block) => void;
-}) {
-  const [props, setProps] = useState<Record<string, any>>(
-    structuredClone(block.props),
-  );
-
-  function set(key: string, value: any) {
-    setProps((p) => ({ ...p, [key]: value }));
-  }
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>编辑「{BLOCK_META[block.type].name}」</h3>
-        {Object.entries(props).map(([key, value]) => (
-          <div className="field" key={key}>
-            <label>{key}</label>
-            {typeof value === "boolean" ? (
-              <button
-                className={`toggle ${value ? "on" : ""}`}
-                onClick={() => set(key, !value)}
-                aria-label={key}
-              />
-            ) : typeof value === "number" ? (
-              <input
-                type="number"
-                className="input"
-                value={value}
-                onChange={(e) => set(key, parseFloat(e.target.value))}
-              />
-            ) : Array.isArray(value) ? (
-              <textarea
-                className="textarea"
-                style={{ minHeight: 120 }}
-                value={JSON.stringify(value, null, 2)}
-                onChange={(e) => {
-                  try {
-                    set(key, JSON.parse(e.target.value));
-                  } catch {
-                    /* ignore invalid json while typing */
-                  }
-                }}
-              />
-            ) : key === "intro" || key === "body" || key === "text" ? (
-              <textarea
-                className="textarea"
-                style={{ minHeight: 90 }}
-                value={value as string}
-                onChange={(e) => set(key, e.target.value)}
-              />
+        {presetTab === "my" && (
+          <div className="lb-library">
+            {(config.presets || []).length === 0 ? (
+              <p className="hint" style={{ padding: "0.5rem 0.25rem" }}>
+                在画布中编辑任意区块，点击「存为预设」即可保存到这里。
+              </p>
             ) : (
-              <input
-                className="input"
-                value={value as string}
-                onChange={(e) => set(key, e.target.value)}
-              />
+              (config.presets || []).map((preset) => (
+                <div key={preset.id} className="lb-preset-item">
+                  <div>
+                    <div className="lb-block-name">{preset.name}</div>
+                    <div className="lb-block-desc">{BLOCK_META[preset.baseType].name}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button className="btn" style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem" }} onClick={() => addFromPreset(preset)}>插入</button>
+                    <button className="btn btn-danger" style={{ fontSize: "0.75rem", padding: "0.25rem 0.5rem" }} onClick={() => removePreset(preset.id)}>删除</button>
+                  </div>
+                </div>
+              ))
             )}
           </div>
-        ))}
-        <div className="modal-actions">
-          <button className="btn" onClick={onClose}>
-            取消
-          </button>
-          <button
-            className="btn btn-primary"
-            style={{ width: "auto" }}
-            onClick={() => onSave({ ...block, props })}
-          >
-            完成
-          </button>
+        )}
+      </aside>
+
+      {/* ── Center: canvas ── */}
+      <div className="lb-canvas-area">
+        <div className="lb-canvas-toolbar">
+          <span className="lb-canvas-hint">拖拽调整顺序，点击区块编辑属性</span>
+          <div className="lb-viewport-toggle">
+            <button className={`lb-vp-btn ${viewport === "desktop" ? "active" : ""}`} onClick={() => setViewport("desktop")} title="桌面">
+              <DesktopIcon />
+            </button>
+            <button className={`lb-vp-btn ${viewport === "mobile" ? "active" : ""}`} onClick={() => setViewport("mobile")} title="移动端">
+              <MobileIcon />
+            </button>
+          </div>
         </div>
+
+        <div className="lb-canvas-scroll">
+          <div className={`lb-canvas-frame lb-canvas-frame--${viewport}`}>
+            {/* browser chrome mock */}
+            <div className="lb-frame-chrome">
+              <div className="lb-frame-dots">
+                <span /><span /><span />
+              </div>
+              <div className="lb-frame-url">{config.meta?.url || "yoursite.com"}</div>
+            </div>
+
+            <div className="lb-frame-body">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                modifiers={[restrictToVerticalAxis]}
+                onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
+              >
+                <SortableContext items={config.blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
+                  {config.blocks.map((block) => (
+                    <SortableCanvasBlock
+                      key={block.id}
+                      block={block}
+                      active={block.id === selectedId}
+                      onSelect={() => setSelectedId(block.id === selectedId ? null : block.id)}
+                      onToggle={() => toggleVisible(block.id)}
+                      onDuplicate={() => duplicateBlock(block.id)}
+                      onDelete={() => removeBlock(block.id)}
+                    />
+                  ))}
+                </SortableContext>
+                <DragOverlay>
+                  {activeBlock && (
+                    <div style={{ opacity: 0.85, transform: "rotate(1.5deg)" }}>
+                      <BlockPreviewCard block={activeBlock} active={false} />
+                    </div>
+                  )}
+                </DragOverlay>
+              </DndContext>
+
+              {config.blocks.length === 0 && (
+                <div className="lb-empty">
+                  <div style={{ fontSize: 28, marginBottom: 8, opacity: 0.4 }}>◈</div>
+                  <p>还没有区块</p>
+                  <p style={{ fontSize: "0.78rem", color: "var(--s-muted)" }}>从左侧区块库点击添加</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Right panel: prop editor ── */}
+      <div className={`lb-prop-panel ${selectedBlock ? "lb-prop-panel--open" : ""}`}>
+        {selectedBlock ? (
+          <PropEditor
+            block={selectedBlock}
+            onChange={updateBlock}
+            onClose={() => setSelectedId(null)}
+            onSavePreset={saveAsPreset}
+          />
+        ) : (
+          <div className="lb-prop-empty">
+            <div style={{ fontSize: 24, opacity: 0.3, marginBottom: 8 }}>←</div>
+            <p>点击画布中的区块</p>
+            <p style={{ fontSize: "0.78rem", color: "var(--s-muted)" }}>即可在此处编辑属性</p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-/* ============================ HELPERS ============================ */
+/* ─── Tiny icon components ──────────────────────────────────────────────────── */
 
-function fmtShort(d: string): string {
-  try {
-    return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric" }).format(
-      new Date(d),
-    );
-  } catch {
-    return d;
-  }
+function DragHandleIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <circle cx="4.5" cy="3.5" r="1.1" fill="currentColor" />
+      <circle cx="9.5" cy="3.5" r="1.1" fill="currentColor" />
+      <circle cx="4.5" cy="7" r="1.1" fill="currentColor" />
+      <circle cx="9.5" cy="7" r="1.1" fill="currentColor" />
+      <circle cx="4.5" cy="10.5" r="1.1" fill="currentColor" />
+      <circle cx="9.5" cy="10.5" r="1.1" fill="currentColor" />
+    </svg>
+  );
 }
-
-function yr(d: string): string {
-  try {
-    return String(new Date(d).getFullYear());
-  } catch {
-    return d;
-  }
+function EyeIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
 }
-
-const modeBtnStyle: React.CSSProperties = {
-  padding: "0.35rem 0.8rem",
-  fontSize: "0.82rem",
-  borderRadius: 8,
-  border: "1px solid var(--s-border)",
-  cursor: "pointer",
-  fontWeight: 500,
-  transition: "all 150ms",
-};
+function EyeOffIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  );
+}
+function CopyIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </svg>
+  );
+}
+function DesktopIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+      <line x1="12" y1="17" x2="12" y2="21" />
+    </svg>
+  );
+}
+function MobileIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+      <line x1="12" y1="18" x2="12.01" y2="18" />
+    </svg>
+  );
+}
