@@ -128,7 +128,14 @@
       "LLM",
       "SRE"
     ],
-    "folders": [],
+    "folders": [
+      {
+        "id": "folder-1782809257800",
+        "name": "测试",
+        "parentId": "",
+        "description": ""
+      }
+    ],
     "floatingNav": {
       "title": "yhoops的知识碎片",
       "searchPlaceholder": "搜索",
