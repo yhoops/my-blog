@@ -1,11 +1,16 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro"
 import BlockRenderer from "../components/BlockRenderer.astro"
+import FloatingKnowledgeNav from "../components/FloatingKnowledgeNav.astro"
 import { getSiteConfig } from "../lib/config"
+import { getProjects, getWriting } from "../lib/posts"
 
 const site = getSiteConfig()
+const writing = await getWriting()
+const projects = await getProjects()
 ---
 
 <BaseLayout>
+  <FloatingKnowledgeNav writing={writing} projects={projects} mode="writing" />
   <BlockRenderer blocks={site.blocks} />
 </BaseLayout>
