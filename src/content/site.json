@@ -96,6 +96,15 @@
       }
     },
     {
+      "id": "blk-mr09marh-1",
+      "type": "richText",
+      "visible": true,
+      "props": {
+        "heading": "测试",
+        "body": "在这里写点什么。"
+      }
+    },
+    {
       "id": "blk-links",
       "type": "linkList",
       "visible": true,
