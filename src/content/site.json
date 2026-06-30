@@ -46,11 +46,11 @@
     },
     "fonts": {
       "heading": "\"Newsreader\", Georgia, serif",
-      "body": "\"Inter\", system-ui, sans-serif"
+      "body": "\"Geist\", system-ui, sans-serif"
     },
     "typography": {
-      "baseSize": 18,
-      "scale": 1.25,
+      "baseSize": 16,
+      "scale": 1.2,
       "measure": 38,
       "radius": 2
     },
@@ -67,7 +67,7 @@
       "type": "hero",
       "visible": true,
       "props": {
-        "name": "林远",
+        "name": "Yhoops",
         "tagline": "写作者 · 界面设计师",
         "intro": "我在设计与代码的交界处工作，关注那些让界面变得克制而优雅的细节。这里记录我的随笔与作品。"
       }
