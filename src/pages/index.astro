@@ -1,36 +1,11 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro"
 import BlockRenderer from "../components/BlockRenderer.astro"
-import FrontPageEditor from "../components/FrontPageEditor"
 import { getSiteConfig } from "../lib/config"
 
 const site = getSiteConfig()
 ---
 
 <BaseLayout>
-  <div id="blocks-container">
-    <BlockRenderer blocks={site.blocks} />
-  </div>
-
-  <!--
-    Client-only React editor: when an admin is logged in, a floating toolbar
-    appears at the bottom of the page. Clicking "编辑布局" fetches the live
-    block list from the API and enables drag-to-reorder directly on the page.
-  -->
-  <FrontPageEditor client:only="react" />
-
-  <style>
-    /* Responsive helpers for the React-rendered blocks */
-    @media (min-width: 768px) {
-      .md-px-8 { padding-left: 2rem !important; padding-right: 2rem !important; }
-      .md-pt-16 { padding-top: 4rem !important; }
-      .md-pb-24 { padding-bottom: 6rem !important; }
-      .md-text-6xl { font-size: 3.75rem !important; }
-      .md-text-xl { font-size: 1.25rem !important; }
-    }
-    /* For the project role label on larger screens */
-    @media (min-width: 640px) {
-      .sm-block { display: block !important; }
-    }
-  </style>
+  <BlockRenderer blocks={site.blocks} />
 </BaseLayout>
