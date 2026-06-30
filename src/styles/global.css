@@ -79,6 +79,10 @@ a {
 
 /* ---------- Reveal-on-scroll animation, driven by tokens ---------- */
 .reveal {
+  opacity: 1;
+  transform: none;
+}
+.reveal-ready .reveal {
   opacity: 0;
   transform: translateY(var(--anim-distance));
   transition:
@@ -87,13 +91,13 @@ a {
   transition-delay: var(--reveal-delay, 0ms);
   will-change: opacity, transform;
 }
-.reveal.is-visible {
+.reveal-ready .reveal.is-visible {
   opacity: 1;
   transform: translateY(0);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .reveal {
+  .reveal-ready .reveal {
     opacity: 1;
     transform: none;
     transition: none;
