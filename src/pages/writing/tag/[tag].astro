@@ -1,6 +1,6 @@
 ---
 import BaseLayout from "../../../layouts/BaseLayout.astro"
-import { getWriting, getPostTags, formatDate } from "../../../lib/posts"
+import { getWriting, getPostTags, formatDate, getCanonicalSlug, getPublicPath } from "../../../lib/posts"
 
 export async function getStaticPaths() {
   const tags = await getPostTags()
@@ -28,8 +28,8 @@ const posts = allPosts.filter((p) => p.data.tags.includes(tag))
   <section class="mx-auto max-w-3xl px-6 md:px-8 pb-16">
     <ul class="flex flex-col">
       {posts.map((post, i) => (
-        <li class="reveal border-t border-line" data-post-id={post.id}>
-          <a href={`/writing/${post.id}`} class="group block py-6">
+        <li class="reveal border-t border-line" data-post-id={getCanonicalSlug(post)}>
+          <a href={getPublicPath(post)} class="group block py-6">
             <div class="flex items-baseline justify-between gap-4">
               <h2 class="text-xl md:text-2xl group-hover:text-accent transition-colors duration-300">
                 {post.data.title}

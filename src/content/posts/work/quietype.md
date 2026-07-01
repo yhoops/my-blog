@@ -1,6 +1,7 @@
 ---
 title: Quietype 写作工具
 description: 一个专注于心流的极简纯文本编辑器。
+canonicalSlug: quietype
 date: 2025-11-04
 tags: ["工具", "写作"]
 category: "工具"

@@ -1,6 +1,7 @@
 ---
 import type { CollectionEntry } from "astro:content"
 import { getSiteConfig } from "../lib/config"
+import { getCanonicalSlug, getPublicPath } from "../lib/posts"
 import KnowledgeTreeItem from "./KnowledgeTreeItem.astro"
 
 interface TreeNode {
@@ -35,12 +36,10 @@ function createNode(name: string): TreeNode {
 }
 
 function displayName(post: CollectionEntry<"posts">): string {
-  return post.data.title || post.id.split("/").at(-1) || post.id
+  return post.data.title || getCanonicalSlug(post) || post.id
 }
 
 function postSegments(post: CollectionEntry<"posts">): string[] {
-  const idParts = post.id.split("/").filter(Boolean)
-  if (idParts.length > 1) return [...idParts.slice(0, -1), displayName(post)]
   const folderParts = (post.data.folder || "").split("/").filter(Boolean)
   return [...folderParts, displayName(post)]
 }
@@ -52,8 +51,8 @@ for (const post of writing) {
     if (!cursor.children.has(segment)) cursor.children.set(segment, createNode(segment))
     cursor = cursor.children.get(segment)!
   }
-  cursor.href = `/writing/${post.id}`
-  cursor.active = post.id === activeSlug
+  cursor.href = getPublicPath(post)
+  cursor.active = getCanonicalSlug(post) === activeSlug
   cursor.searchText = `${post.data.title} ${post.data.description} ${post.data.category} ${post.data.tags.join(" ")}`
 }
 
@@ -62,8 +61,8 @@ for (const project of projects) {
   const name = displayName(project)
   projectRoot.children.set(name, {
     name,
-    href: `/work/${project.id}`,
-    active: project.id === activeSlug,
+    href: getPublicPath(project),
+    active: getCanonicalSlug(project) === activeSlug,
     searchText: `${project.data.title} ${project.data.description} ${project.data.tags.join(" ")}`,
     children: new Map(),
   })

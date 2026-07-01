@@ -1,5 +1,7 @@
 ---
 title: AI 日报-敲鸭
+canonicalSlug: ai-日报-敲鸭
+aliases: ["测试/ai-日报-敲鸭"]
 date: 2026-06-30
 kind: writing
 category: 大数据

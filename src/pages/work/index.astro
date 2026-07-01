@@ -1,7 +1,7 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro"
 import FloatingKnowledgeNav from "../../components/FloatingKnowledgeNav.astro"
-import { getProjects, getWriting, formatYear } from "../../lib/posts"
+import { getProjects, getWriting, formatYear, getPublicPath } from "../../lib/posts"
 
 const projects = await getProjects()
 const writing = await getWriting()
@@ -20,7 +20,7 @@ const writing = await getWriting()
       {
         projects.map((project) => (
           <li class="reveal border-t border-line">
-            <a href={`/work/${project.id}`} class="group grid grid-cols-[3rem_1fr_auto] items-baseline gap-4 py-6">
+            <a href={getPublicPath(project)} class="group grid grid-cols-[3rem_1fr_auto] items-baseline gap-4 py-6">
               <span class="text-sm text-faint tabular-nums">
                 {project.data.year ?? formatYear(project.data.date)}
               </span>

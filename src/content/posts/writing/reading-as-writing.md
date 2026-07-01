@@ -1,6 +1,7 @@
 ---
 title: 把阅读当作写作
 description: 关于输入与输出之间那条常被忽略的通道。
+canonicalSlug: reading-as-writing
 date: 2026-03-28
 tags: ["写作", "思考"]
 category: "写作"

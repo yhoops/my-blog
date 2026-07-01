@@ -1,6 +1,6 @@
 import rss from "@astrojs/rss"
 import type { APIContext } from "astro"
-import { getAllPosts } from "../lib/posts"
+import { getAllPosts, getPublicPath } from "../lib/posts"
 import { getSiteConfig } from "../lib/config"
 
 export async function GET(context: APIContext) {
@@ -14,7 +14,7 @@ export async function GET(context: APIContext) {
       title: post.data.title,
       description: post.data.description,
       pubDate: post.data.date,
-      link: `/${post.data.kind === "project" ? "work" : "writing"}/${post.id}/`,
+      link: `${getPublicPath(post)}/`,
     })),
   })
 }

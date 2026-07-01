@@ -7,11 +7,17 @@ import { commitFile, deleteFile, readGitHubEnv } from "../../lib/github";
 export const prerender = false;
 
 const POSTS_DIR = "src/content/posts";
+const LIBRARIES = {
+  writing: "writing",
+  project: "work",
+} as const;
 
 interface PostPayload {
   slug: string;
   title: string;
   description?: string;
+  canonicalSlug?: string;
+  aliases?: string[];
   summary?: string;
   highlights?: string[];
   projectHighlights?: string[];
@@ -33,6 +39,8 @@ function buildMarkdown(p: PostPayload): string {
   const fm: string[] = ["---"];
   fm.push(`title: ${yaml(p.title)}`);
   if (p.description) fm.push(`description: ${yaml(p.description)}`);
+  if (p.canonicalSlug) fm.push(`canonicalSlug: ${yaml(p.canonicalSlug)}`);
+  if (p.aliases && p.aliases.length) fm.push(`aliases: [${p.aliases.map(yaml).join(", ")}]`);
   if (p.summary) fm.push(`summary: ${yaml(p.summary)}`);
   if (p.highlights && p.highlights.length) fm.push(`highlights: [${p.highlights.map(yaml).join(", ")}]`);
   if (p.projectHighlights && p.projectHighlights.length) fm.push(`projectHighlights: [${p.projectHighlights.map(yaml).join(", ")}]`);
@@ -69,63 +77,163 @@ function slugify(s: string): string {
     .slice(0, 80);
 }
 
-function postPath(slug: string, folder?: string): string {
+function normalizeAliasPath(value: string): string {
+  return value
+    .split("/")
+    .map((part) => slugify(part))
+    .filter(Boolean)
+    .join("/");
+}
+
+function libraryFor(kind: PostPayload["kind"]): "writing" | "work" {
+  return kind === "project" ? "work" : "writing";
+}
+
+function postPath(kind: PostPayload["kind"], slug: string, folder?: string): string {
   const cleanSlug = slugify(slug);
   const cleanFolder = (folder || "")
     .split("/")
     .map((part) => slugify(part))
     .filter(Boolean)
     .join("/");
-  return `${POSTS_DIR}/${cleanFolder ? `${cleanFolder}/` : ""}${cleanSlug}.md`;
+  const library = libraryFor(kind);
+  return `${POSTS_DIR}/${library}/${cleanFolder ? `${cleanFolder}/` : ""}${cleanSlug}.md`;
 }
 
-function existingPostPath(slug: string): string {
+function normalizeId(id: string): string {
+  return id.replace(/\.(md|mdx)$/, "");
+}
+
+function folderFromId(id: string): string {
+  const parts = normalizeId(id).split("/").filter(Boolean);
+  if (!parts.length) return "";
+  const trimmed = parts[0] === "writing" || parts[0] === "work" ? parts.slice(1) : parts;
+  return trimmed.slice(0, -1).join("/");
+}
+
+function fileSlugFromId(id: string): string {
+  return normalizeId(id).split("/").filter(Boolean).at(-1) || "";
+}
+
+async function getPosts() {
+  return getCollection("posts");
+}
+
+async function findCanonicalConflict(kind: "writing" | "project", canonicalSlug: string, currentId?: string) {
+  const posts = await getPosts();
+  return posts.find((post) => {
+    if (post.data.kind !== kind) return false;
+    if (currentId && post.id === currentId) return false;
+    const canonical = post.data.canonicalSlug || fileSlugFromId(post.id);
+    return canonical === canonicalSlug;
+  });
+}
+
+async function findPostByLegacySlug(slug: string) {
   const clean = slug
     .split("/")
     .map((part) => slugify(part))
     .filter(Boolean)
     .join("/");
-  return `${POSTS_DIR}/${clean}.md`;
+  const posts = await getPosts();
+  return posts.find((post) => normalizeId(post.id) === clean) ?? null;
+}
+
+function legacyAliasSet(kind: "writing" | "project", canonicalSlug: string, filePathSlug: string, aliases: string[] = []): string[] {
+  const merged = new Set<string>(aliases.filter(Boolean).map(normalizeAliasPath).filter(Boolean));
+  const legacy = filePathSlug.split("/").filter(Boolean).join("/");
+  if (legacy && legacy !== canonicalSlug) merged.add(legacy);
+  merged.delete(canonicalSlug);
+  return [...merged];
 }
 
 export async function GET(context: APIContext): Promise<Response> {
   if (!(await requireAuth(context))) return unauthorized();
-  const posts = await getCollection("posts");
-  const list = posts.map((p) => ({
-    slug: p.id.replace(/\.(md|mdx)$/, ""),
-    ...p.data,
-    date: p.data.date instanceof Date ? p.data.date.toISOString().slice(0, 10) : p.data.date,
-    body: (p as { body?: string }).body ?? "",
-  }));
+  const posts = await getPosts();
+  const list = posts.map((p) => {
+    const slug = p.data.canonicalSlug || fileSlugFromId(p.id);
+    const folder = p.data.folder || folderFromId(p.id);
+    const library = p.data.kind === "project" ? "work" : "writing";
+    return {
+      slug,
+      fileSlug: fileSlugFromId(p.id),
+      sourceId: normalizeId(p.id),
+      library,
+      ...p.data,
+      canonicalSlug: slug,
+      aliases: legacyAliasSet(p.data.kind, slug, normalizeId(p.id), p.data.aliases ?? []),
+      folder,
+      date: p.data.date instanceof Date ? p.data.date.toISOString().slice(0, 10) : p.data.date,
+      body: (p as { body?: string }).body ?? "",
+    };
+  });
   return json({ ok: true, posts: list });
 }
 
 export async function PUT(context: APIContext): Promise<Response> {
   if (!(await requireAuth(context))) return unauthorized();
 
-  let payload: PostPayload;
+  let payload: PostPayload & { sourceId?: string };
   try {
-    payload = (await context.request.json()) as PostPayload;
+    payload = (await context.request.json()) as PostPayload & { sourceId?: string };
   } catch {
     return json({ ok: false, error: "请求格式错误" }, 400);
   }
   if (!payload.title) return json({ ok: false, error: "标题不能为空" }, 400);
 
-  const slug = payload.slug ? slugify(payload.slug) : slugify(payload.title);
-  if (!slug) return json({ ok: false, error: "无法生成有效的文件名" }, 400);
+  const kind = payload.kind || "writing";
+  const canonicalSlug = slugify(payload.canonicalSlug || payload.slug || payload.title);
+  if (!canonicalSlug) return json({ ok: false, error: "无法生成有效的公开地址" }, 400);
+
+  const conflict = await findCanonicalConflict(kind, canonicalSlug, payload.sourceId);
+  if (conflict) return json({ ok: false, error: "当前内容库中已存在相同 slug" }, 409);
+
+  const folder = (payload.folder || "")
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join("/");
+  const fileSlug = slugify(payload.slug || canonicalSlug || payload.title);
+  const targetPath = postPath(kind, fileSlug, folder);
+  const source = payload.sourceId ? await findPostByLegacySlug(payload.sourceId) : null;
+  const previousCanonical = source ? source.data.canonicalSlug || fileSlugFromId(source.id) : "";
+  const previousLegacy = source ? normalizeId(source.id) : "";
+  const aliases = legacyAliasSet(
+    kind,
+    canonicalSlug,
+    previousLegacy || `${libraryFor(kind)}${folder ? `/${folder}` : ""}/${fileSlug}`,
+    [
+      ...(payload.aliases ?? []),
+      ...(source?.data.aliases ?? []),
+      previousCanonical && previousCanonical !== canonicalSlug ? previousCanonical : "",
+      previousLegacy && previousLegacy !== canonicalSlug ? previousLegacy : "",
+    ],
+  );
 
   const env = readGitHubEnv(getEnv(context));
   const result = await commitFile(
     env,
-    postPath(slug, payload.folder),
-    buildMarkdown({ ...payload, slug }),
+    targetPath,
+    buildMarkdown({
+      ...payload,
+      kind,
+      folder,
+      canonicalSlug,
+      aliases,
+      slug: canonicalSlug,
+    }),
     `content: 保存《${payload.title}》`,
   );
 
   if (!result.ok) {
     return json({ ok: false, error: result.message ?? "提交失败" }, 502);
   }
-  return json({ ok: true, slug, commitUrl: result.commitUrl });
+
+  if (source && normalizeId(source.id) !== normalizeId(targetPath.replace(`${POSTS_DIR}/`, "").replace(/\.md$/, ""))) {
+    await deleteFile(env, `${POSTS_DIR}/${normalizeId(source.id)}.md`, `content: 清理旧文件 ${source.data.title}`);
+  }
+
+  return json({ ok: true, slug: canonicalSlug, commitUrl: result.commitUrl });
 }
 
 export async function POST(context: APIContext): Promise<Response> {
@@ -149,18 +257,38 @@ export async function POST(context: APIContext): Promise<Response> {
       results.push({ ok: false, slug: item.slug, error: "标题不能为空" });
       continue;
     }
-    const slug = item.slug ? slugify(item.slug) : slugify(title);
-    if (!slug) {
-      results.push({ ok: false, slug: item.slug, error: "无法生成有效的文件名" });
+    const kind = item.kind || "writing";
+    const canonicalSlug = slugify(item.canonicalSlug || item.slug || title);
+    if (!canonicalSlug) {
+      results.push({ ok: false, slug: item.slug, error: "无法生成有效的公开地址" });
       continue;
     }
+    const conflict = await findCanonicalConflict(kind, canonicalSlug);
+    if (conflict) {
+      results.push({ ok: false, slug: canonicalSlug, error: "当前内容库中已存在相同 slug" });
+      continue;
+    }
+    const folder = (item.folder || "")
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join("/");
+    const fileSlug = slugify(item.slug || canonicalSlug || title);
     const result = await commitFile(
       env,
-      postPath(slug, item.folder),
-      buildMarkdown({ ...item, slug, title }),
+      postPath(kind, fileSlug, folder),
+      buildMarkdown({
+        ...item,
+        title,
+        kind,
+        folder,
+        canonicalSlug,
+        aliases: [],
+        slug: canonicalSlug,
+      }),
       `content: 导入《${title}》`,
     );
-    results.push({ ok: result.ok, slug, error: result.message, commitUrl: result.commitUrl });
+    results.push({ ok: result.ok, slug: canonicalSlug, error: result.message, commitUrl: result.commitUrl });
   }
 
   const failed = results.filter((r) => !r.ok);
@@ -172,8 +300,11 @@ export async function DELETE(context: APIContext): Promise<Response> {
   const slug = new URL(context.request.url).searchParams.get("slug");
   if (!slug) return json({ ok: false, error: "缺少 slug" }, 400);
 
+  const post = await findPostByLegacySlug(slug);
+  if (!post) return json({ ok: false, error: "未找到对应内容" }, 404);
+
   const env = readGitHubEnv(getEnv(context));
-  const result = await deleteFile(env, existingPostPath(slug), `content: 删除 ${slug}`);
+  const result = await deleteFile(env, `${POSTS_DIR}/${normalizeId(post.id)}.md`, `content: 删除 ${slug}`);
   if (!result.ok) {
     return json({ ok: false, error: result.message ?? "删除失败" }, 502);
   }

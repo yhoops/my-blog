@@ -4,6 +4,11 @@ import { StudioConfirmDialog, StudioPromptDialog } from "./StudioDialog";
 
 interface PostItem {
   slug: string;
+  canonicalSlug?: string;
+  aliases?: string[];
+  sourceId?: string;
+  fileSlug?: string;
+  library?: "writing" | "work";
   title: string;
   description?: string;
   summary?: string;
@@ -29,6 +34,8 @@ interface FolderNode {
   children: FolderNode[];
   posts: PostItem[];
 }
+
+type LibraryKey = "writing" | "work";
 
 const EMPTY: PostItem & { body: string } = {
   slug: "",
@@ -69,6 +76,8 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<PostItem & { body: string }>({ ...EMPTY });
   const [selectedFolder, setSelectedFolder] = useState("");
+  const [activeLibrary, setActiveLibrary] = useState<LibraryKey>("writing");
+  const [pendingLibrary, setPendingLibrary] = useState<LibraryKey | null>(null);
   const [status, setStatus] = useState("");
   const [previewing, setPreviewing] = useState(false);
   const [folderPromptOpen, setFolderPromptOpen] = useState(false);
@@ -77,7 +86,21 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   const importRef = useRef<HTMLInputElement | null>(null);
 
   const content = useMemo(() => normalizeContent(config?.content), [config]);
-  const folderTree = useMemo(() => buildFolderTree(posts, content.folders), [posts, content.folders]);
+  const libraryPosts = useMemo(
+    () => posts.filter((post) => (post.library || (post.kind === "project" ? "work" : "writing")) === activeLibrary),
+    [posts, activeLibrary],
+  );
+  const folderTree = useMemo(
+    () => buildFolderTree(libraryPosts, content.folders.filter((folder) => (folder.library || "writing") === activeLibrary)),
+    [libraryPosts, content.folders, activeLibrary],
+  );
+  const libraryCounts = useMemo(
+    () => ({
+      writing: posts.filter((post) => (post.library || (post.kind === "project" ? "work" : "writing")) === "writing").length,
+      work: posts.filter((post) => (post.library || (post.kind === "project" ? "work" : "writing")) === "work").length,
+    }),
+    [posts],
+  );
   const previewHtml = useMemo(() => previewDocument(editing, renderMarkdown(editing.body), config), [editing, config]);
 
   async function load() {
@@ -101,13 +124,19 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   function selectPost(post: PostItem) {
     const editable = toEditablePost(post);
     setEditing(editable);
+    setActiveLibrary((editable.library || (editable.kind === "project" ? "work" : "writing")) as LibraryKey);
     setSelectedFolder(editable.folder || "");
     setPreviewing(false);
     setStatus("");
   }
 
-  function newPost(kind: "writing" | "project" = "writing") {
-    setEditing({ ...EMPTY, kind, folder: selectedFolder });
+  function newPost(kind: "writing" | "project" = activeLibrary === "work" ? "project" : "writing") {
+    setEditing({
+      ...EMPTY,
+      kind,
+      library: kind === "project" ? "work" : "writing",
+      folder: selectedFolder,
+    });
     setPreviewing(false);
     setStatus("");
   }
@@ -127,6 +156,9 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...editing,
+        canonicalSlug: editing.canonicalSlug || editing.slug,
+        sourceId: editing.sourceId,
+        library: activeLibrary,
         folder: selectedFolder,
         tags: normalizeTags(editing.tags),
         highlights: normalizeLines(editing.highlights),
@@ -147,7 +179,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     const res = await fetch(`/api/posts?slug=${encodeURIComponent(deleteTarget)}`, { method: "DELETE" });
     const data = (await res.json()) as { ok: boolean; error?: string };
     if (data.ok) {
-      setEditing({ ...EMPTY, folder: selectedFolder });
+      setEditing({ ...EMPTY, folder: selectedFolder, library: activeLibrary, kind: activeLibrary === "work" ? "project" : "writing" });
       setPreviewing(false);
       setDeleteTarget("");
       setStatus("已删除当前内容");
@@ -176,7 +208,10 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     const name = folderDraft.trim();
     if (!name) return;
     const parentId = folderIdByPath(content.folders, selectedFolder);
-    await saveFolders([...content.folders, { id: `folder-${Date.now()}`, name, parentId, description: "" }]);
+    await saveFolders([
+      ...content.folders,
+      { id: `folder-${Date.now()}`, name, library: activeLibrary, parentId, description: "" },
+    ]);
     setFolderPromptOpen(false);
     setFolderDraft("");
   }
@@ -200,7 +235,11 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     setStatus("正在导入 Markdown...");
     const imports = await Promise.all(
       selected.map((file) =>
-        parseMarkdownFile(file, { kind: editing.kind, category: editing.category, folder: selectedFolder }),
+        parseMarkdownFile(file, {
+          kind: activeLibrary === "work" ? "project" : "writing",
+          category: editing.category,
+          folder: selectedFolder,
+        }),
       ),
     );
     const res = await fetch("/api/posts", {
@@ -215,10 +254,36 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   }
 
   const visiblePosts = selectedFolder
-    ? posts.filter((post) => postFolder(post) === selectedFolder)
-    : posts.filter((post) => !postFolder(post));
+    ? libraryPosts.filter((post) => postFolder(post) === selectedFolder)
+    : libraryPosts.filter((post) => !postFolder(post));
 
   const currentDeleteSlug = editing.slug ? (editing.folder ? `${editing.folder}/${editing.slug}` : editing.slug) : "";
+
+  function isDirty() {
+    return Boolean(editing.title || editing.body.trim() !== "#");
+  }
+
+  function requestLibrarySwitch(nextLibrary: LibraryKey) {
+    if (nextLibrary === activeLibrary) return;
+    if (isDirty()) {
+      setPendingLibrary(nextLibrary);
+      return;
+    }
+    applyLibrarySwitch(nextLibrary);
+  }
+
+  function applyLibrarySwitch(nextLibrary: LibraryKey) {
+    setActiveLibrary(nextLibrary);
+    setSelectedFolder("");
+    setPreviewing(false);
+    setEditing({
+      ...EMPTY,
+      kind: nextLibrary === "work" ? "project" : "writing",
+      library: nextLibrary,
+      folder: "",
+    });
+    setPendingLibrary(null);
+  }
 
   if (loading) return <p className="hint">正在加载...</p>;
 
@@ -236,8 +301,8 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
       <aside className="content-explorer">
         <div className="explorer-head">
           <div>
-            <div className="eyebrow">内容目录</div>
-            <strong>src/content/posts</strong>
+            <div className="eyebrow">内容库</div>
+            <strong>{activeLibrary === "writing" ? "随笔" : "作品"}</strong>
           </div>
           <button
             className="icon-mini"
@@ -248,6 +313,16 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
             aria-label="添加文件夹"
           >
             +
+          </button>
+        </div>
+        <div className="library-switcher">
+          <button className={`library-pill ${activeLibrary === "writing" ? "active" : ""}`} onClick={() => requestLibrarySwitch("writing")}>
+            <span>随笔</span>
+            <small>{libraryCounts.writing}</small>
+          </button>
+          <button className={`library-pill ${activeLibrary === "work" ? "active" : ""}`} onClick={() => requestLibrarySwitch("work")}>
+            <span>作品</span>
+            <small>{libraryCounts.work}</small>
           </button>
         </div>
         <FolderTree
@@ -348,9 +423,12 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
                   />
                   <input
                     className="ghost-input slug-input"
-                    value={editing.slug}
-                    placeholder="slug"
-                    onChange={(e) => set("slug", e.target.value)}
+                    value={editing.canonicalSlug || editing.slug}
+                    placeholder="公开 slug"
+                    onChange={(e) => {
+                      set("slug", e.target.value);
+                      set("canonicalSlug", e.target.value);
+                    }}
                   />
                 </div>
                 <textarea
@@ -527,6 +605,16 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
         onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget("")}
       />
+
+      <StudioConfirmDialog
+        open={Boolean(pendingLibrary)}
+        title="切换内容库"
+        message="当前内容还有未保存的修改。你可以先保存，再切换；或者放弃修改后切换。"
+        confirmLabel="放弃并切换"
+        cancelLabel="取消"
+        onConfirm={() => pendingLibrary && applyLibrarySwitch(pendingLibrary)}
+        onCancel={() => setPendingLibrary(null)}
+      />
     </div>
   );
 }
@@ -549,8 +637,12 @@ function toEditablePost(post: PostItem): PostItem & { body: string } {
   return {
     ...EMPTY,
     ...post,
-    slug: parts.at(-1) ?? post.slug,
-    folder: post.folder || parts.slice(0, -1).join("/"),
+    slug: post.canonicalSlug || post.slug || parts.at(-1) || "",
+    canonicalSlug: post.canonicalSlug || post.slug || parts.at(-1) || "",
+    sourceId: post.sourceId || post.slug,
+    fileSlug: post.fileSlug || parts.at(-1) || "",
+    library: (post.library || (post.kind === "project" ? "work" : "writing")) as LibraryKey,
+    folder: post.folder || parts.slice(1, -1).join("/"),
     tags: normalizeTags(post.tags),
     highlights: normalizeLines(post.highlights),
     projectHighlights: normalizeLines(post.projectHighlights),
@@ -583,7 +675,10 @@ function normalizeLines(value: string[] | undefined): string[] {
 
 function postFolder(post: PostItem): string {
   if (post.folder) return post.folder;
-  return post.slug.split("/").filter(Boolean).slice(0, -1).join("/");
+  const source = post.sourceId || post.slug;
+  const parts = source.split("/").filter(Boolean);
+  if (parts[0] === "writing" || parts[0] === "work") return parts.slice(1, -1).join("/");
+  return parts.slice(0, -1).join("/");
 }
 
 function buildFolderTree(posts: PostItem[], folders: ContentFolder[]): FolderNode {

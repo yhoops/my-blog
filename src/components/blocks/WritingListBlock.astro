@@ -1,5 +1,5 @@
 ---
-import { getWriting, formatDate } from "../../lib/posts"
+import { getWriting, formatDate, getPublicPath } from "../../lib/posts"
 
 interface Props {
   props: { heading?: string; limit?: number; showDescription?: boolean }
@@ -18,7 +18,7 @@ const posts = props.limit ? all.slice(0, props.limit) : all
     {
       posts.map((post) => (
         <li class="reveal border-t border-line">
-          <a href={`/writing/${post.id}`} class="group block py-5">
+          <a href={getPublicPath(post)} class="group block py-5">
             <div class="flex items-baseline justify-between gap-4">
               <h3 class="text-xl md:text-2xl group-hover:text-accent transition-colors duration-300">
                 {post.data.title}

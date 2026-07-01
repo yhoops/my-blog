@@ -1,5 +1,5 @@
 ---
-import { getProjects, formatYear } from "../../lib/posts"
+import { getProjects, formatYear, getPublicPath } from "../../lib/posts"
 
 interface Props {
   props: { heading?: string; limit?: number }
@@ -17,7 +17,7 @@ const projects = props.limit ? all.slice(0, props.limit) : all
     {
       projects.map((project) => (
         <li class="reveal border-t border-line">
-          <a href={`/work/${project.id}`} class="group grid grid-cols-[auto_1fr_auto] items-baseline gap-4 py-5">
+          <a href={getPublicPath(project)} class="group grid grid-cols-[auto_1fr_auto] items-baseline gap-4 py-5">
             <span class="text-sm text-faint tabular-nums w-12">
               {project.data.year ?? formatYear(project.data.date)}
             </span>

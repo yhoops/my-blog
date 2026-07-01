@@ -58,6 +58,7 @@ export interface NavLink {
 export interface ContentFolder {
   id: string
   name: string
+  library?: "writing" | "work"
   parentId?: string
   description?: string
 }
@@ -102,6 +103,8 @@ export interface PresetComponent {
 export interface PostFrontmatter {
   title: string
   description: string
+  canonicalSlug?: string
+  aliases?: string[]
   date: string
   tags: string[]
   category?: string

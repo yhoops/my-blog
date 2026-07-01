@@ -11,6 +11,16 @@
           "type": "string",
           "default": ""
         },
+        "canonicalSlug": {
+          "type": "string"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
         "summary": {
           "type": "string"
         },

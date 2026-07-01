@@ -474,6 +474,41 @@ input[type="color"] {
   border-bottom: 1px solid var(--s-border);
   margin-bottom: 0.65rem;
 }
+.library-switcher {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  margin-bottom: 0.8rem;
+}
+.library-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 1px solid var(--s-border);
+  border-radius: 999px;
+  background: var(--s-panel-2);
+  color: var(--s-muted);
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease,
+    color 0.14s ease;
+}
+.library-pill:hover,
+.library-pill.active {
+  color: var(--s-text);
+  border-color: color-mix(in srgb, var(--s-accent) 30%, var(--s-border));
+  background: color-mix(in srgb, var(--s-accent-soft) 48%, var(--s-panel));
+}
+.library-pill small {
+  min-width: 1.4rem;
+  text-align: center;
+  font-size: 0.72rem;
+  color: inherit;
+}
 .eyebrow {
   color: var(--s-muted);
   font-size: 0.68rem;

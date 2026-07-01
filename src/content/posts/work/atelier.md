@@ -1,6 +1,7 @@
 ---
 title: Atelier 设计系统
 description: 一套以排版为核心的开源设计系统。
+canonicalSlug: atelier
 date: 2026-02-10
 tags: ["设计系统", "开源"]
 category: "设计系统"

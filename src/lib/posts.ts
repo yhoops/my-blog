@@ -1,10 +1,29 @@
 import { getCollection } from "astro:content"
+import type { CollectionEntry } from "astro:content"
 
 export async function getAllPosts() {
   const posts = await getCollection("posts", ({ data }) => !data.draft)
   return posts.sort(
     (a, b) => b.data.date.valueOf() - a.data.date.valueOf(),
   )
+}
+
+export function getCanonicalSlug(post: CollectionEntry<"posts">): string {
+  return post.data.canonicalSlug || post.id.split("/").filter(Boolean).at(-1) || post.id
+}
+
+export function getPublicPath(post: CollectionEntry<"posts">): string {
+  const prefix = post.data.kind === "project" ? "work" : "writing"
+  return `/${prefix}/${getCanonicalSlug(post)}`
+}
+
+export async function findPostByPublicSlug(kind: "writing" | "project", slug: string) {
+  const posts = await getCollection("posts", ({ data }) => data.kind === kind && !data.draft)
+  return posts.find((post) => {
+    const canonical = getCanonicalSlug(post)
+    const aliases = post.data.aliases ?? []
+    return canonical === slug || aliases.includes(slug)
+  }) ?? null
 }
 
 export async function getWriting() {

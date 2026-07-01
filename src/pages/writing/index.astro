@@ -1,13 +1,13 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro"
 import FloatingKnowledgeNav from "../../components/FloatingKnowledgeNav.astro"
-import { getProjects, getWriting, formatDate } from "../../lib/posts"
+import { getProjects, getWriting, formatDate, getCanonicalSlug, getPublicPath } from "../../lib/posts"
 
 const posts = await getWriting()
 const projects = await getProjects()
 
 const searchData = posts.map((p) => ({
-  id: p.id,
+  id: getCanonicalSlug(p),
   title: p.data.title,
   description: p.data.description,
   tags: p.data.tags,
@@ -41,9 +41,9 @@ const searchData = posts.map((p) => ({
         posts.map((post) => (
           <li
             class="reveal border-t border-line"
-            data-post-id={post.id}
+            data-post-id={getCanonicalSlug(post)}
           >
-            <a href={`/writing/${post.id}`} class="group block py-6">
+            <a href={getPublicPath(post)} class="group block py-6">
               <div class="flex items-baseline justify-between gap-4">
                 <h2 class="text-xl md:text-2xl group-hover:text-accent transition-colors duration-300">
                   {post.data.title}
