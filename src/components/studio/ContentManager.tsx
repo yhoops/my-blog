@@ -71,6 +71,7 @@ const DEFAULT_CONTENT: ContentConfig = {
 };
 
 export default function ContentManager({ githubConfigured }: { githubConfigured: boolean }) {
+  const MIGRATION_NOTICE_KEY = "atelier-library-migration-notice-v1";
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [config, setConfig] = useState<SiteConfig | null>(null);
   const [loading, setLoading] = useState(true);
@@ -78,6 +79,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   const [selectedFolder, setSelectedFolder] = useState("");
   const [activeLibrary, setActiveLibrary] = useState<LibraryKey>("writing");
   const [pendingLibrary, setPendingLibrary] = useState<LibraryKey | null>(null);
+  const [showMigrationNotice, setShowMigrationNotice] = useState(false);
   const [status, setStatus] = useState("");
   const [previewing, setPreviewing] = useState(false);
   const [folderPromptOpen, setFolderPromptOpen] = useState(false);
@@ -121,6 +123,12 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     load();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const seen = window.localStorage.getItem(MIGRATION_NOTICE_KEY);
+    if (!seen) setShowMigrationNotice(true);
+  }, []);
+
   function selectPost(post: PostItem) {
     const editable = toEditablePost(post);
     setEditing(editable);
@@ -145,10 +153,10 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     setEditing((form) => ({ ...form, [key]: value }));
   }
 
-  async function save() {
+  async function save(): Promise<boolean> {
     if (!editing.title.trim()) {
       setStatus("标题不能为空");
-      return;
+      return false;
     }
     setStatus("正在保存...");
     const res = await fetch("/api/posts", {
@@ -169,9 +177,18 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     if (data.ok) {
       setStatus("已保存并提交到 GitHub");
       await load();
+      return true;
     } else {
       setStatus(data.error || "保存失败");
+      return false;
     }
+  }
+
+  async function saveAndSwitchLibrary(nextLibrary: LibraryKey) {
+    const ok = await save();
+    if (!ok) return;
+    setPendingLibrary(null);
+    applyLibrarySwitch(nextLibrary);
   }
 
   async function confirmDelete() {
@@ -260,7 +277,14 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   const currentDeleteSlug = editing.slug ? (editing.folder ? `${editing.folder}/${editing.slug}` : editing.slug) : "";
 
   function isDirty() {
-    return Boolean(editing.title || editing.body.trim() !== "#");
+    return Boolean(
+      editing.title ||
+        (editing.body || "").trim() !== "#" ||
+        editing.description ||
+        editing.summary ||
+        editing.contextNote ||
+        (editing.tags && normalizeTags(editing.tags).length > 0),
+    );
   }
 
   function requestLibrarySwitch(nextLibrary: LibraryKey) {
@@ -339,6 +363,11 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
       <main className="editor-canvas">
         {!previewing && (
           <>
+            {showMigrationNotice && (
+              <div className="banner ok">
+                内容已整理为“随笔 / 作品”两个内容库，公开地址已从文件路径中解耦。旧层级地址仍会保留跳转。
+              </div>
+            )}
             <div className="workbench-topbar">
               <div className="toolbar">
                 <button className="btn btn-primary" style={{ width: "auto" }} onClick={() => newPost("writing")}>
@@ -612,8 +641,23 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
         message="当前内容还有未保存的修改。你可以先保存，再切换；或者放弃修改后切换。"
         confirmLabel="放弃并切换"
         cancelLabel="取消"
+        neutralLabel="保存后切换"
         onConfirm={() => pendingLibrary && applyLibrarySwitch(pendingLibrary)}
+        onNeutral={() => pendingLibrary && saveAndSwitchLibrary(pendingLibrary)}
         onCancel={() => setPendingLibrary(null)}
+      />
+
+      <StudioConfirmDialog
+        open={showMigrationNotice}
+        title="内容库迁移完成"
+        message="现有内容已按“随笔 / 作品”分库存放，正式公开地址改为扁平 slug，旧层级地址会继续跳转到当前地址。"
+        confirmLabel="知道了"
+        cancelLabel="稍后再看"
+        onConfirm={() => {
+          setShowMigrationNotice(false);
+          if (typeof window !== "undefined") window.localStorage.setItem(MIGRATION_NOTICE_KEY, "seen");
+        }}
+        onCancel={() => setShowMigrationNotice(false)}
       />
     </div>
   );

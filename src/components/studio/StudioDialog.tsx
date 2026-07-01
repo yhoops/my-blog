@@ -55,8 +55,10 @@ interface StudioConfirmDialogProps {
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  neutralLabel?: string;
   danger?: boolean;
   onConfirm: () => void;
+  onNeutral?: () => void;
   onCancel: () => void;
 }
 
@@ -66,8 +68,10 @@ export function StudioConfirmDialog({
   message,
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
+  neutralLabel,
   danger = false,
   onConfirm,
+  onNeutral,
   onCancel,
 }: StudioConfirmDialogProps) {
   return (
@@ -80,6 +84,11 @@ export function StudioConfirmDialog({
           <button className="btn" onClick={onCancel}>
             {cancelLabel}
           </button>
+          {neutralLabel && onNeutral ? (
+            <button className="btn" onClick={onNeutral}>
+              {neutralLabel}
+            </button>
+          ) : null}
           <button className={`btn ${danger ? "btn-danger" : "btn-primary"}`} onClick={onConfirm}>
             {confirmLabel}
           </button>
