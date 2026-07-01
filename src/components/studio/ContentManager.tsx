@@ -17,7 +17,7 @@ interface PostItem {
   contextNote?: string;
   date?: string;
   kind?: "writing" | "project";
-  tags?: string[];
+  tags?: string[] | string;
   category?: string;
   folder?: string;
   cover?: string;
@@ -39,6 +39,11 @@ type LibraryKey = "writing" | "work";
 
 const EMPTY: PostItem & { body: string } = {
   slug: "",
+  canonicalSlug: "",
+  aliases: [],
+  sourceId: "",
+  fileSlug: "",
+  library: "writing",
   title: "",
   description: "",
   summary: "",
@@ -89,7 +94,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
 
   const content = useMemo(() => normalizeContent(config?.content), [config]);
   const libraryPosts = useMemo(
-    () => posts.filter((post) => (post.library || (post.kind === "project" ? "work" : "writing")) === activeLibrary),
+    () => posts.filter((post) => resolveLibrary(post) === activeLibrary),
     [posts, activeLibrary],
   );
   const folderTree = useMemo(
@@ -98,8 +103,8 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   );
   const libraryCounts = useMemo(
     () => ({
-      writing: posts.filter((post) => (post.library || (post.kind === "project" ? "work" : "writing")) === "writing").length,
-      work: posts.filter((post) => (post.library || (post.kind === "project" ? "work" : "writing")) === "work").length,
+      writing: posts.filter((post) => resolveLibrary(post) === "writing").length,
+      work: posts.filter((post) => resolveLibrary(post) === "work").length,
     }),
     [posts],
   );
@@ -132,17 +137,18 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   function selectPost(post: PostItem) {
     const editable = toEditablePost(post);
     setEditing(editable);
-    setActiveLibrary((editable.library || (editable.kind === "project" ? "work" : "writing")) as LibraryKey);
+    setActiveLibrary(resolveLibrary(editable));
     setSelectedFolder(editable.folder || "");
     setPreviewing(false);
     setStatus("");
   }
 
   function newPost(kind: "writing" | "project" = activeLibrary === "work" ? "project" : "writing") {
+    const library = kind === "project" ? "work" : "writing";
     setEditing({
       ...EMPTY,
       kind,
-      library: kind === "project" ? "work" : "writing",
+      library,
       folder: selectedFolder,
     });
     setPreviewing(false);
@@ -178,10 +184,9 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
       setStatus("已保存并提交到 GitHub");
       await load();
       return true;
-    } else {
-      setStatus(data.error || "保存失败");
-      return false;
     }
+    setStatus(data.error || "保存失败");
+    return false;
   }
 
   async function saveAndSwitchLibrary(nextLibrary: LibraryKey) {
@@ -196,15 +201,20 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     const res = await fetch(`/api/posts?slug=${encodeURIComponent(deleteTarget)}`, { method: "DELETE" });
     const data = (await res.json()) as { ok: boolean; error?: string };
     if (data.ok) {
-      setEditing({ ...EMPTY, folder: selectedFolder, library: activeLibrary, kind: activeLibrary === "work" ? "project" : "writing" });
+      setEditing({
+        ...EMPTY,
+        folder: selectedFolder,
+        library: activeLibrary,
+        kind: activeLibrary === "work" ? "project" : "writing",
+      });
       setPreviewing(false);
       setDeleteTarget("");
       setStatus("已删除当前内容");
       await load();
-    } else {
-      setDeleteTarget("");
-      setStatus(data.error || "删除失败");
+      return;
     }
+    setDeleteTarget("");
+    setStatus(data.error || "删除失败");
   }
 
   async function saveFolders(nextFolders: ContentFolder[]) {
@@ -224,7 +234,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   async function createFolder() {
     const name = folderDraft.trim();
     if (!name) return;
-    const parentId = folderIdByPath(content.folders, selectedFolder);
+    const parentId = folderIdByPath(content.folders.filter((folder) => (folder.library || "writing") === activeLibrary), selectedFolder);
     await saveFolders([
       ...content.folders,
       { id: `folder-${Date.now()}`, name, library: activeLibrary, parentId, description: "" },
@@ -283,7 +293,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
         editing.description ||
         editing.summary ||
         editing.contextNote ||
-        (editing.tags && normalizeTags(editing.tags).length > 0),
+        normalizeTags(editing.tags).length > 0,
     );
   }
 
@@ -327,6 +337,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
           <div>
             <div className="eyebrow">内容库</div>
             <strong>{activeLibrary === "writing" ? "随笔" : "作品"}</strong>
+            <div className="explorer-subcopy">按内容类型独立存放与浏览</div>
           </div>
           <button
             className="icon-mini"
@@ -339,18 +350,28 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
             +
           </button>
         </div>
+
         <div className="library-switcher">
-          <button className={`library-pill ${activeLibrary === "writing" ? "active" : ""}`} onClick={() => requestLibrarySwitch("writing")}>
+          <button
+            className={`library-pill ${activeLibrary === "writing" ? "active" : ""}`}
+            onClick={() => requestLibrarySwitch("writing")}
+          >
             <span>随笔</span>
             <small>{libraryCounts.writing}</small>
           </button>
-          <button className={`library-pill ${activeLibrary === "work" ? "active" : ""}`} onClick={() => requestLibrarySwitch("work")}>
+          <button
+            className={`library-pill ${activeLibrary === "work" ? "active" : ""}`}
+            onClick={() => requestLibrarySwitch("work")}
+          >
             <span>作品</span>
             <small>{libraryCounts.work}</small>
           </button>
         </div>
+
         <FolderTree
           node={folderTree}
+          rootLabel={activeLibrary === "writing" ? "全部随笔" : "全部作品"}
+          emptyLabel={activeLibrary === "writing" ? "当前随笔库还没有内容。" : "当前作品库还没有内容。"}
           selected={selectedFolder}
           onSelect={(path) => {
             setSelectedFolder(path);
@@ -368,6 +389,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
                 内容已整理为“随笔 / 作品”两个内容库，公开地址已从文件路径中解耦。旧层级地址仍会保留跳转。
               </div>
             )}
+
             <div className="workbench-topbar">
               <div className="toolbar">
                 <button className="btn btn-primary" style={{ width: "auto" }} onClick={() => newPost("writing")}>
@@ -401,7 +423,15 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
               <div className="editor-meta-strip">
                 <div className="meta-field">
                   <label>内容类型</label>
-                  <select className="ghost-input" value={editing.kind} onChange={(e) => set("kind", e.target.value as "writing" | "project")}>
+                  <select
+                    className="ghost-input"
+                    value={editing.kind}
+                    onChange={(e) => {
+                      const kind = e.target.value as "writing" | "project";
+                      set("kind", kind);
+                      set("library", kind === "project" ? "work" : "writing");
+                    }}
+                  >
                     <option value="writing">随笔</option>
                     <option value="project">作品</option>
                   </select>
@@ -438,7 +468,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
 
                 <div className="meta-field meta-field--path">
                   <label>保存位置</label>
-                  <div className="selected-path">{selectedFolder || "顶层目录"}</div>
+                  <div className="selected-path">{selectedFolder || "内容库根目录"}</div>
                 </div>
               </div>
 
@@ -494,9 +524,9 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
                       <label>标签</label>
                       <input
                         className="ghost-input"
-                        value={Array.isArray(editing.tags) ? editing.tags.join(", ") : (editing.tags as unknown as string)}
+                        value={normalizeTags(editing.tags).join(", ")}
                         placeholder="使用逗号分隔，例如：写作, 设计"
-                        onChange={(e) => set("tags", e.target.value as never)}
+                        onChange={(e) => set("tags", e.target.value)}
                       />
                     </div>
                   </div>
@@ -571,7 +601,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
                 )}
               </div>
               {visiblePosts.length === 0 ? (
-                <p className="hint">当前目录还没有内容。</p>
+                <p className="hint">{activeLibrary === "writing" ? "当前目录还没有随笔。" : "当前目录还没有作品。"}</p>
               ) : (
                 visiblePosts.map((post) => (
                   <button className="file-row" key={post.slug} onClick={() => selectPost(post)}>
@@ -663,6 +693,10 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   );
 }
 
+function resolveLibrary(post: Pick<PostItem, "library" | "kind">): LibraryKey {
+  return (post.library || (post.kind === "project" ? "work" : "writing")) as LibraryKey;
+}
+
 function normalizeContent(content?: Partial<ContentConfig>): ContentConfig {
   return {
     ...DEFAULT_CONTENT,
@@ -677,16 +711,17 @@ function normalizeContent(content?: Partial<ContentConfig>): ContentConfig {
 }
 
 function toEditablePost(post: PostItem): PostItem & { body: string } {
-  const parts = post.slug.split("/").filter(Boolean);
+  const parts = (post.sourceId || post.slug || "").split("/").filter(Boolean);
   return {
     ...EMPTY,
     ...post,
     slug: post.canonicalSlug || post.slug || parts.at(-1) || "",
     canonicalSlug: post.canonicalSlug || post.slug || parts.at(-1) || "",
+    aliases: post.aliases || [],
     sourceId: post.sourceId || post.slug,
     fileSlug: post.fileSlug || parts.at(-1) || "",
-    library: (post.library || (post.kind === "project" ? "work" : "writing")) as LibraryKey,
-    folder: post.folder || parts.slice(1, -1).join("/"),
+    library: resolveLibrary(post),
+    folder: post.folder || (parts[0] === "writing" || parts[0] === "work" ? parts.slice(1, -1).join("/") : parts.slice(0, -1).join("/")),
     tags: normalizeTags(post.tags),
     highlights: normalizeLines(post.highlights),
     projectHighlights: normalizeLines(post.projectHighlights),
@@ -719,14 +754,14 @@ function normalizeLines(value: string[] | undefined): string[] {
 
 function postFolder(post: PostItem): string {
   if (post.folder) return post.folder;
-  const source = post.sourceId || post.slug;
+  const source = post.sourceId || post.slug || "";
   const parts = source.split("/").filter(Boolean);
   if (parts[0] === "writing" || parts[0] === "work") return parts.slice(1, -1).join("/");
   return parts.slice(0, -1).join("/");
 }
 
 function buildFolderTree(posts: PostItem[], folders: ContentFolder[]): FolderNode {
-  const root: FolderNode = { name: "posts", path: "", children: [], posts: [] };
+  const root: FolderNode = { name: "root", path: "", children: [], posts: [] };
   const ensure = (path: string) => {
     let cursor = root;
     let prefix = "";
@@ -770,18 +805,11 @@ function folderOptions(folders: ContentFolder[], posts: PostItem[] = []) {
   }
   walk("", "", 0);
   for (const post of posts) {
-    const parts = post.slug.split("/").filter(Boolean).slice(0, -1);
+    const parts = postFolder(post).split("/").filter(Boolean);
     let prefix = "";
     for (const [index, part] of parts.entries()) {
       prefix = [prefix, part].filter(Boolean).join("/");
       if (!map.has(prefix)) map.set(prefix, { label: `${"  ".repeat(index)}${part}`, path: prefix });
-    }
-    if (post.folder && !map.has(post.folder)) {
-      const depth = post.folder.split("/").filter(Boolean).length - 1;
-      map.set(post.folder, {
-        label: `${"  ".repeat(Math.max(depth, 0))}${post.folder.split("/").at(-1)}`,
-        path: post.folder,
-      });
     }
   }
   return [...map.values()].sort((a, b) => a.path.localeCompare(b.path));
@@ -803,32 +831,41 @@ function folderIdByPath(folders: ContentFolder[], path: string): string {
 
 function FolderTree({
   node,
+  rootLabel,
+  emptyLabel,
   selected,
   onSelect,
   onPost,
 }: {
   node: FolderNode;
+  rootLabel: string;
+  emptyLabel: string;
   selected: string;
   onSelect: (path: string) => void;
   onPost: (post: PostItem) => void;
 }) {
+  const hasChildren = node.children.length > 0 || node.posts.length > 0;
   return (
     <div className="folder-tree">
-      <button className={`folder-node ${selected === "" ? "active" : ""}`} onClick={() => onSelect("")}>
+      <button className={`folder-node explorer-root ${selected === "" ? "active" : ""}`} onClick={() => onSelect("")}>
         <span>▾</span>
-        <strong>posts</strong>
+        <strong>{rootLabel}</strong>
       </button>
-      <div className="folder-children">
-        {node.children.map((child) => (
-          <FolderBranch key={child.path} node={child} selected={selected} onSelect={onSelect} onPost={onPost} />
-        ))}
-        {node.posts.map((post) => (
-          <button className="post-node" key={post.slug} onClick={() => onPost(post)}>
-            <span>•</span>
-            {post.title}
-          </button>
-        ))}
-      </div>
+      {hasChildren ? (
+        <div className="folder-children">
+          {node.children.map((child) => (
+            <FolderBranch key={child.path} node={child} selected={selected} onSelect={onSelect} onPost={onPost} />
+          ))}
+          {node.posts.map((post) => (
+            <button className="post-node" key={post.slug} onClick={() => onPost(post)}>
+              <span>•</span>
+              {post.title}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="explorer-empty">{emptyLabel}</p>
+      )}
     </div>
   );
 }
@@ -887,7 +924,15 @@ function ContentSettingsInline({ content, onSave }: { content: ContentConfig; on
           <textarea
             className="textarea textarea-compact"
             value={draft.categories.join("\n")}
-            onChange={(e) => setDraft({ ...draft, categories: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                categories: e.target.value
+                  .split("\n")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              })
+            }
           />
         </div>
         <div className="field">
@@ -901,7 +946,12 @@ function ContentSettingsInline({ content, onSave }: { content: ContentConfig; on
           <input
             className="input"
             value={draft.floatingNav.searchPlaceholder}
-            onChange={(e) => setDraft({ ...draft, floatingNav: { ...draft.floatingNav, searchPlaceholder: e.target.value } })}
+            onChange={(e) =>
+              setDraft({
+                ...draft,
+                floatingNav: { ...draft.floatingNav, searchPlaceholder: e.target.value },
+              })
+            }
           />
         </div>
       </div>
@@ -919,12 +969,14 @@ async function parseMarkdownFile(
   const text = await file.text();
   const parsed = parseFrontmatter(text);
   const fallbackTitle = file.name.replace(/\.(md|markdown)$/i, "");
+  const canonical = String(parsed.data.canonicalSlug || parsed.data.slug || fallbackTitle);
   return {
     ...EMPTY,
     ...defaults,
     ...parsed.data,
     title: String(parsed.data.title || fallbackTitle),
-    slug: String(parsed.data.slug || fallbackTitle),
+    slug: canonical,
+    canonicalSlug: canonical,
     tags: Array.isArray(parsed.data.tags)
       ? parsed.data.tags
       : String(parsed.data.tags || "")
