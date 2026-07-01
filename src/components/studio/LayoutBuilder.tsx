@@ -18,6 +18,7 @@ import {
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 import type { SiteConfig, Block, BlockType, PresetComponent } from "../../lib/config-types";
+import { StudioPromptDialog } from "./StudioDialog";
 
 /* ─── Metadata ──────────────────────────────────────────────────────────────── */
 
@@ -369,6 +370,8 @@ export default function LayoutBuilder({
   const [viewport, setViewport] = useState<"desktop" | "mobile">("desktop");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [presetTab, setPresetTab] = useState<"library" | "my">("library");
+  const [presetDraft, setPresetDraft] = useState("");
+  const [presetTarget, setPresetTarget] = useState<Block | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -426,15 +429,21 @@ export default function LayoutBuilder({
   }
 
   function saveAsPreset(block: Block) {
-    const name = prompt("为这个预设命名：");
-    if (!name) return;
+    setPresetTarget(block);
+    setPresetDraft("");
+  }
+
+  function confirmSavePreset() {
+    if (!presetTarget || !presetDraft.trim()) return;
     const preset: PresetComponent = {
       id: uid("preset"),
-      name,
-      baseType: block.type,
-      defaultProps: structuredClone(block.props),
+      name: presetDraft.trim(),
+      baseType: presetTarget.type,
+      defaultProps: structuredClone(presetTarget.props),
     };
     onChange({ ...config, presets: [...(config.presets || []), preset] });
+    setPresetTarget(null);
+    setPresetDraft("");
   }
 
   function removePreset(id: string) {
@@ -442,7 +451,8 @@ export default function LayoutBuilder({
   }
 
   return (
-    <div className="lb-root">
+    <>
+      <div className="lb-root">
       {/* ── Left sidebar: block library ── */}
       <aside className="lb-sidebar">
         <div className="lb-sidebar-tabs">
@@ -576,7 +586,23 @@ export default function LayoutBuilder({
           </div>
         )}
       </div>
-    </div>
+      </div>
+      <StudioPromptDialog
+        open={Boolean(presetTarget)}
+        title="保存为预设"
+        label="预设名称"
+        value={presetDraft}
+        placeholder="例如：双栏项目导语"
+        confirmLabel="保存"
+        cancelLabel="取消"
+        onChange={setPresetDraft}
+        onConfirm={confirmSavePreset}
+        onCancel={() => {
+          setPresetTarget(null);
+          setPresetDraft("");
+        }}
+      />
+    </>
   );
 }
 

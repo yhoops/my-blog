@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ContentConfig, ContentFolder, SiteConfig } from "../../lib/config-types";
+import { StudioConfirmDialog, StudioPromptDialog } from "./StudioDialog";
 
 interface PostItem {
   slug: string;
@@ -42,6 +43,10 @@ const EMPTY: PostItem & { body: string } = {
   tags: [],
   category: "",
   folder: "",
+  cover: "",
+  year: "",
+  role: "",
+  url: "",
   draft: false,
   body: "# ",
 };
@@ -65,10 +70,15 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   const [editing, setEditing] = useState<PostItem & { body: string }>({ ...EMPTY });
   const [selectedFolder, setSelectedFolder] = useState("");
   const [status, setStatus] = useState("");
+  const [previewing, setPreviewing] = useState(false);
+  const [folderPromptOpen, setFolderPromptOpen] = useState(false);
+  const [folderDraft, setFolderDraft] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState("");
   const importRef = useRef<HTMLInputElement | null>(null);
 
   const content = useMemo(() => normalizeContent(config?.content), [config]);
   const folderTree = useMemo(() => buildFolderTree(posts, content.folders), [posts, content.folders]);
+  const previewHtml = useMemo(() => previewDocument(editing, renderMarkdown(editing.body), config), [editing, config]);
 
   async function load() {
     setLoading(true);
@@ -92,11 +102,13 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     const editable = toEditablePost(post);
     setEditing(editable);
     setSelectedFolder(editable.folder || "");
+    setPreviewing(false);
     setStatus("");
   }
 
   function newPost(kind: "writing" | "project" = "writing") {
     setEditing({ ...EMPTY, kind, folder: selectedFolder });
+    setPreviewing(false);
     setStatus("");
   }
 
@@ -130,14 +142,18 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     }
   }
 
-  async function del(slug: string) {
-    if (!confirm(`确定删除《${slug}》？此操作会从 GitHub 移除该文件。`)) return;
-    const res = await fetch(`/api/posts?slug=${encodeURIComponent(slug)}`, { method: "DELETE" });
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    const res = await fetch(`/api/posts?slug=${encodeURIComponent(deleteTarget)}`, { method: "DELETE" });
     const data = (await res.json()) as { ok: boolean; error?: string };
     if (data.ok) {
       setEditing({ ...EMPTY, folder: selectedFolder });
+      setPreviewing(false);
+      setDeleteTarget("");
+      setStatus("已删除当前内容");
       await load();
     } else {
+      setDeleteTarget("");
       setStatus(data.error || "删除失败");
     }
   }
@@ -154,6 +170,15 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     });
     const data = (await res.json()) as { ok: boolean; error?: string };
     setStatus(data.ok ? "文件夹已保存" : data.error || "文件夹保存失败");
+  }
+
+  async function createFolder() {
+    const name = folderDraft.trim();
+    if (!name) return;
+    const parentId = folderIdByPath(content.folders, selectedFolder);
+    await saveFolders([...content.folders, { id: `folder-${Date.now()}`, name, parentId, description: "" }]);
+    setFolderPromptOpen(false);
+    setFolderDraft("");
   }
 
   async function saveContentSettings(nextContent: ContentConfig) {
@@ -174,7 +199,9 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     if (!selected.length) return;
     setStatus("正在导入 Markdown...");
     const imports = await Promise.all(
-      selected.map((file) => parseMarkdownFile(file, { kind: editing.kind, category: editing.category, folder: selectedFolder })),
+      selected.map((file) =>
+        parseMarkdownFile(file, { kind: editing.kind, category: editing.category, folder: selectedFolder }),
+      ),
     );
     const res = await fetch("/api/posts", {
       method: "POST",
@@ -187,22 +214,11 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     if (importRef.current) importRef.current.value = "";
   }
 
-  function preview() {
-    const doc = previewDocument(editing, renderMarkdown(editing.body), config);
-    const win = window.open("about:blank", "_blank", "width=980,height=820");
-    if (!win) {
-      setStatus("浏览器阻止了预览窗口，请允许此站点打开弹窗。");
-      return;
-    }
-    win.opener = null;
-    win.document.open();
-    win.document.write(doc);
-    win.document.close();
-  }
-
   const visiblePosts = selectedFolder
     ? posts.filter((post) => postFolder(post) === selectedFolder)
     : posts.filter((post) => !postFolder(post));
+
+  const currentDeleteSlug = editing.slug ? (editing.folder ? `${editing.folder}/${editing.slug}` : editing.slug) : "";
 
   if (loading) return <p className="hint">正在加载...</p>;
 
@@ -226,10 +242,8 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
           <button
             className="icon-mini"
             onClick={() => {
-              const name = prompt("新文件夹名称");
-              if (!name?.trim()) return;
-              const parentId = folderIdByPath(content.folders, selectedFolder);
-              saveFolders([...content.folders, { id: `folder-${Date.now()}`, name: name.trim(), parentId, description: "" }]);
+              setFolderDraft("");
+              setFolderPromptOpen(true);
             }}
             aria-label="添加文件夹"
           >
@@ -248,170 +262,271 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
       </aside>
 
       <main className="editor-canvas">
-        <div className="workbench-topbar">
-          <div className="toolbar">
-            <button className="btn btn-primary" style={{ width: "auto" }} onClick={() => newPost("writing")}>
-              新建随笔
-            </button>
-            <button className="btn" onClick={() => newPost("project")}>
-              新建作品
-            </button>
-            <button className="btn" onClick={() => importRef.current?.click()}>
-              导入 MD
-            </button>
-            <button className="btn" onClick={preview}>
-              预览
-            </button>
-          </div>
-          <div className="toolbar">
-            {status && <span className="hint">{status}</span>}
-            <button className="btn btn-primary" style={{ width: "auto" }} onClick={save}>
-              保存并提交
-            </button>
-          </div>
-        </div>
-
-        {!githubConfigured && <div className="banner warn">未配置 GitHub，保存会失败。请先设置 GITHUB_TOKEN / GITHUB_REPO。</div>}
-
-        <div className="editor-layout">
-          <section className="editor-main-card">
-            <div className="title-grid">
-              <input
-                className="ghost-input title-input"
-                value={editing.title}
-                placeholder="标题"
-                onChange={(e) => set("title", e.target.value)}
-              />
-              <input
-                className="ghost-input slug-input"
-                value={editing.slug}
-                placeholder="slug (xx-xx)"
-                onChange={(e) => set("slug", e.target.value)}
-              />
+        {!previewing && (
+          <>
+            <div className="workbench-topbar">
+              <div className="toolbar">
+                <button className="btn btn-primary" style={{ width: "auto" }} onClick={() => newPost("writing")}>
+                  新建随笔
+                </button>
+                <button className="btn" onClick={() => newPost("project")}>
+                  新建作品
+                </button>
+                <button className="btn" onClick={() => importRef.current?.click()}>
+                  导入 MD
+                </button>
+                <button className="btn" onClick={() => setPreviewing(true)}>
+                  预览
+                </button>
+              </div>
+              <div className="toolbar">
+                {status && <span className="hint">{status}</span>}
+                <button className="btn btn-primary" style={{ width: "auto" }} onClick={save}>
+                  保存并发布
+                </button>
+              </div>
             </div>
-            <textarea
-              className="article-textarea"
-              value={editing.body}
-              placeholder="#&#10;&#10;从这里开始写作..."
-              onChange={(e) => set("body", e.target.value)}
-            />
-          </section>
 
-          <aside className="editor-side-stack">
-            <section className="glass-card cover-card">
-              <label>封面</label>
-              <button className="cover-drop" onClick={() => set("cover", prompt("封面图片 URL", editing.cover || "") || editing.cover)}>
-                {editing.cover ? <img src={editing.cover} alt="" /> : <span>+</span>}
-              </button>
-            </section>
-
-            <section className="glass-card">
-              <label>元信息</label>
-              <textarea
-                className="ghost-input meta-summary"
-                value={editing.description}
-                placeholder="为这篇文章写一段简短摘要"
-                onChange={(e) => set("description", e.target.value)}
-              />
-              <input
-                className="ghost-input"
-                value={Array.isArray(editing.tags) ? editing.tags.join(", ") : (editing.tags as any)}
-                placeholder="添加标签（逗号分隔）"
-                onChange={(e) => set("tags", e.target.value as any)}
-              />
-              <input
-                className="ghost-input"
-                list="post-categories"
-                value={editing.category}
-                placeholder="未分类"
-                onChange={(e) => set("category", e.target.value)}
-              />
-              <datalist id="post-categories">
-                {content.categories.map((cat) => (
-                  <option value={cat} key={cat} />
-                ))}
-              </datalist>
-              <select className="ghost-input" value={editing.kind} onChange={(e) => set("kind", e.target.value as "writing" | "project")}>
-                <option value="writing">随笔</option>
-                <option value="project">作品</option>
-              </select>
-              <input className="ghost-input" type="date" value={editing.date} onChange={(e) => set("date", e.target.value)} />
-              <label className="check-row">
-                <input type="checkbox" checked={Boolean(editing.draft)} onChange={(e) => set("draft", e.target.checked)} />
-                隐藏此文章（仅管理员可见）
-              </label>
-              <div className="selected-path">保存到：{selectedFolder || "顶层"}</div>
-            </section>
-
-            <section className="glass-card">
-              <label>右侧语境栏</label>
-              <textarea
-                className="ghost-input meta-summary"
-                value={editing.summary || ""}
-                placeholder="语境栏摘要；留空时使用文章描述"
-                onChange={(e) => set("summary", e.target.value)}
-              />
-              {editing.kind === "project" ? (
-                <textarea
-                  className="ghost-input meta-summary"
-                  value={(editing.projectHighlights ?? []).join("\n")}
-                  placeholder="项目亮点，每行一条，最多 3 条"
-                  onChange={(e) => set("projectHighlights", splitLines(e.target.value))}
-                />
-              ) : (
-                <textarea
-                  className="ghost-input meta-summary"
-                  value={(editing.highlights ?? []).join("\n")}
-                  placeholder="关键点，每行一条，最多 3 条"
-                  onChange={(e) => set("highlights", splitLines(e.target.value))}
-                />
-              )}
-              <textarea
-                className="ghost-input meta-summary"
-                value={editing.contextNote || ""}
-                placeholder="补充语境，例如写作背景或项目约束"
-                onChange={(e) => set("contextNote", e.target.value)}
-              />
-            </section>
-
-            <section className="glass-card">
-              <div className="card-headline">
-                <label>图片管理</label>
-                <button className="link-button">压缩工具</button>
+            {!githubConfigured && (
+              <div className="banner warn">
+                尚未配置 GitHub，保存时无法提交到仓库。预览和编辑仍然可用。
               </div>
-              <div className="image-add">
-                <input className="ghost-input" placeholder="https://..." />
-                <button className="btn">添加</button>
-              </div>
-              <button className="image-tile">+</button>
-            </section>
-          </aside>
-        </div>
-
-        <section className="panel compact-panel">
-          <div className="panel-headline">
-            <h3>当前目录内容</h3>
-            {editing.slug && (
-              <button className="btn btn-danger" onClick={() => del(editing.folder ? `${editing.folder}/${editing.slug}` : editing.slug)}>
-                删除当前文章
-              </button>
             )}
-          </div>
-          {visiblePosts.length === 0 ? (
-            <p className="hint">当前目录还没有内容。</p>
-          ) : (
-            visiblePosts.map((post) => (
-              <button className="file-row" key={post.slug} onClick={() => selectPost(post)}>
-                <span>{post.kind === "project" ? "◆" : "◇"}</span>
-                <strong>{post.title}</strong>
-                <small>{post.slug}</small>
-              </button>
-            ))
-          )}
-        </section>
 
-        <ContentSettingsInline content={content} onSave={saveContentSettings} />
+            <section className="editor-workspace">
+              <div className="editor-meta-strip">
+                <div className="meta-field">
+                  <label>内容类型</label>
+                  <select className="ghost-input" value={editing.kind} onChange={(e) => set("kind", e.target.value as "writing" | "project")}>
+                    <option value="writing">随笔</option>
+                    <option value="project">作品</option>
+                  </select>
+                </div>
+
+                <div className="meta-field">
+                  <label>分类</label>
+                  <input
+                    className="ghost-input"
+                    list="post-categories"
+                    value={editing.category}
+                    placeholder="未分类"
+                    onChange={(e) => set("category", e.target.value)}
+                  />
+                  <datalist id="post-categories">
+                    {content.categories.map((cat) => (
+                      <option value={cat} key={cat} />
+                    ))}
+                  </datalist>
+                </div>
+
+                <div className="meta-field">
+                  <label>发布日期</label>
+                  <input className="ghost-input" type="date" value={editing.date} onChange={(e) => set("date", e.target.value)} />
+                </div>
+
+                <label className="meta-toggle-card">
+                  <span>草稿状态</span>
+                  <span className="check-row">
+                    <input type="checkbox" checked={Boolean(editing.draft)} onChange={(e) => set("draft", e.target.checked)} />
+                    仅后台可见
+                  </span>
+                </label>
+
+                <div className="meta-field meta-field--path">
+                  <label>保存位置</label>
+                  <div className="selected-path">{selectedFolder || "顶层目录"}</div>
+                </div>
+              </div>
+
+              <section className="editor-main-card editor-main-surface">
+                <div className="title-grid">
+                  <input
+                    className="ghost-input title-input"
+                    value={editing.title}
+                    placeholder="标题"
+                    onChange={(e) => set("title", e.target.value)}
+                  />
+                  <input
+                    className="ghost-input slug-input"
+                    value={editing.slug}
+                    placeholder="slug"
+                    onChange={(e) => set("slug", e.target.value)}
+                  />
+                </div>
+                <textarea
+                  className="article-textarea article-textarea--workbench"
+                  value={editing.body}
+                  placeholder={"# \n\n从这里开始写作..."}
+                  onChange={(e) => set("body", e.target.value)}
+                />
+              </section>
+
+              <div className="editor-support-grid">
+                <details className="editor-fold" open>
+                  <summary>基础信息</summary>
+                  <div className="editor-fields editor-fields--two">
+                    <div className="field">
+                      <label>文章摘要</label>
+                      <textarea
+                        className="ghost-input meta-summary"
+                        value={editing.description}
+                        placeholder="用于开放页描述与列表摘要"
+                        onChange={(e) => set("description", e.target.value)}
+                      />
+                    </div>
+                    <div className="field">
+                      <label>封面图</label>
+                      <input
+                        className="ghost-input"
+                        value={editing.cover || ""}
+                        placeholder="https://..."
+                        onChange={(e) => set("cover", e.target.value)}
+                      />
+                    </div>
+                    <div className="field editor-fields-span-2">
+                      <label>标签</label>
+                      <input
+                        className="ghost-input"
+                        value={Array.isArray(editing.tags) ? editing.tags.join(", ") : (editing.tags as unknown as string)}
+                        placeholder="使用逗号分隔，例如：写作, 设计"
+                        onChange={(e) => set("tags", e.target.value as never)}
+                      />
+                    </div>
+                  </div>
+                </details>
+
+                <details className="editor-fold" open>
+                  <summary>阅读前预览</summary>
+                  <div className="editor-fields">
+                    <div className="field">
+                      <label>右侧预览摘要</label>
+                      <textarea
+                        className="ghost-input meta-summary"
+                        value={editing.summary || ""}
+                        placeholder="留空时会优先使用文章摘要，再回退到正文首段"
+                        onChange={(e) => set("summary", e.target.value)}
+                      />
+                    </div>
+                    <div className="field">
+                      <label>{editing.kind === "project" ? "项目亮点" : "作者高亮"}</label>
+                      <textarea
+                        className="ghost-input meta-summary"
+                        value={(editing.kind === "project" ? editing.projectHighlights : editing.highlights)?.join("\n") || ""}
+                        placeholder="每行一条，最多 3 条"
+                        onChange={(e) =>
+                          editing.kind === "project"
+                            ? set("projectHighlights", splitLines(e.target.value))
+                            : set("highlights", splitLines(e.target.value))
+                        }
+                      />
+                    </div>
+                    <div className="field">
+                      <label>语境备注</label>
+                      <textarea
+                        className="ghost-input meta-summary"
+                        value={editing.contextNote || ""}
+                        placeholder="补充这篇内容的背景、约束或写作缘由"
+                        onChange={(e) => set("contextNote", e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </details>
+
+                {editing.kind === "project" && (
+                  <details className="editor-fold" open>
+                    <summary>作品信息</summary>
+                    <div className="editor-fields editor-fields--three">
+                      <div className="field">
+                        <label>年份</label>
+                        <input className="ghost-input" value={editing.year || ""} placeholder="2026" onChange={(e) => set("year", e.target.value)} />
+                      </div>
+                      <div className="field">
+                        <label>角色</label>
+                        <input className="ghost-input" value={editing.role || ""} placeholder="设计 / 开发 / 写作" onChange={(e) => set("role", e.target.value)} />
+                      </div>
+                      <div className="field">
+                        <label>项目链接</label>
+                        <input className="ghost-input" value={editing.url || ""} placeholder="https://..." onChange={(e) => set("url", e.target.value)} />
+                      </div>
+                    </div>
+                  </details>
+                )}
+              </div>
+            </section>
+
+            <section className="panel compact-panel">
+              <div className="panel-headline">
+                <h3>当前目录内容</h3>
+                {currentDeleteSlug && (
+                  <button className="btn btn-danger" onClick={() => setDeleteTarget(currentDeleteSlug)}>
+                    删除当前文章
+                  </button>
+                )}
+              </div>
+              {visiblePosts.length === 0 ? (
+                <p className="hint">当前目录还没有内容。</p>
+              ) : (
+                visiblePosts.map((post) => (
+                  <button className="file-row" key={post.slug} onClick={() => selectPost(post)}>
+                    <span>{post.kind === "project" ? "◻" : "•"}</span>
+                    <strong>{post.title}</strong>
+                    <small>{post.slug}</small>
+                  </button>
+                ))
+              )}
+            </section>
+
+            <ContentSettingsInline content={content} onSave={saveContentSettings} />
+          </>
+        )}
+
+        {previewing && (
+          <section className="publish-preview-shell">
+            <div className="publish-preview-topbar">
+              <button className="btn" onClick={() => setPreviewing(false)}>
+                返回编辑
+              </button>
+              <div className="publish-preview-title">{editing.title || "未命名内容"}</div>
+              <div className="toolbar">
+                {status && <span className="hint">{status}</span>}
+                <button className="btn btn-primary" style={{ width: "auto" }} onClick={save}>
+                  发布
+                </button>
+              </div>
+            </div>
+            <div className="publish-preview-frame">
+              <iframe title="发布预览" srcDoc={previewHtml} />
+            </div>
+          </section>
+        )}
       </main>
+
+      <StudioPromptDialog
+        open={folderPromptOpen}
+        title="新建文件夹"
+        label="文件夹名称"
+        value={folderDraft}
+        placeholder="例如：随笔 / 设计"
+        confirmLabel="创建"
+        cancelLabel="取消"
+        onChange={setFolderDraft}
+        onConfirm={createFolder}
+        onCancel={() => {
+          setFolderPromptOpen(false);
+          setFolderDraft("");
+        }}
+      />
+
+      <StudioConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="删除内容"
+        message={`将从仓库中移除「${deleteTarget}」，这个操作不能撤销。`}
+        confirmLabel="确认删除"
+        cancelLabel="取消"
+        danger
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget("")}
+      />
     </div>
   );
 }
@@ -436,21 +551,34 @@ function toEditablePost(post: PostItem): PostItem & { body: string } {
     ...post,
     slug: parts.at(-1) ?? post.slug,
     folder: post.folder || parts.slice(0, -1).join("/"),
+    tags: normalizeTags(post.tags),
+    highlights: normalizeLines(post.highlights),
+    projectHighlights: normalizeLines(post.projectHighlights),
     body: post.body || "",
   };
 }
 
 function normalizeTags(tags: PostItem["tags"]): string[] {
   if (Array.isArray(tags)) return tags;
-  return String(tags || "").split(",").map((s) => s.trim()).filter(Boolean);
+  return String(tags || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function splitLines(value: string): string[] {
-  return value.split(/\r?\n/).map((s) => s.trim()).filter(Boolean).slice(0, 3);
+  return value
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 3);
 }
 
 function normalizeLines(value: string[] | undefined): string[] {
-  return (value ?? []).map((s) => s.trim()).filter(Boolean).slice(0, 3);
+  return (value ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 3);
 }
 
 function postFolder(post: PostItem): string {
@@ -511,7 +639,10 @@ function folderOptions(folders: ContentFolder[], posts: PostItem[] = []) {
     }
     if (post.folder && !map.has(post.folder)) {
       const depth = post.folder.split("/").filter(Boolean).length - 1;
-      map.set(post.folder, { label: `${"  ".repeat(Math.max(depth, 0))}${post.folder.split("/").at(-1)}`, path: post.folder });
+      map.set(post.folder, {
+        label: `${"  ".repeat(Math.max(depth, 0))}${post.folder.split("/").at(-1)}`,
+        path: post.folder,
+      });
     }
   }
   return [...map.values()].sort((a, b) => a.path.localeCompare(b.path));
@@ -554,7 +685,7 @@ function FolderTree({
         ))}
         {node.posts.map((post) => (
           <button className="post-node" key={post.slug} onClick={() => onPost(post)}>
-            <span>◇</span>
+            <span>•</span>
             {post.title}
           </button>
         ))}
@@ -578,7 +709,14 @@ function FolderBranch({
   return (
     <div>
       <button className={`folder-node ${selected === node.path ? "active" : ""}`} onClick={() => onSelect(node.path)}>
-        <span onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>{open ? "▾" : "▸"}</span>
+        <span
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen(!open);
+          }}
+        >
+          {open ? "▾" : "▸"}
+        </span>
         <strong>{node.name}</strong>
       </button>
       {open && (
@@ -588,7 +726,7 @@ function FolderBranch({
           ))}
           {node.posts.map((post) => (
             <button className="post-node" key={post.slug} onClick={() => onPost(post)}>
-              <span>{post.kind === "project" ? "◆" : "◇"}</span>
+              <span>{post.kind === "project" ? "◻" : "•"}</span>
               {post.title}
             </button>
           ))}
@@ -615,9 +753,17 @@ function ContentSettingsInline({ content, onSave }: { content: ContentConfig; on
         </div>
         <div className="field">
           <label>悬浮模块标题</label>
-          <input className="input" value={draft.floatingNav.title} onChange={(e) => setDraft({ ...draft, floatingNav: { ...draft.floatingNav, title: e.target.value } })} />
+          <input
+            className="input"
+            value={draft.floatingNav.title}
+            onChange={(e) => setDraft({ ...draft, floatingNav: { ...draft.floatingNav, title: e.target.value } })}
+          />
           <label style={{ marginTop: "0.75rem" }}>搜索占位文案</label>
-          <input className="input" value={draft.floatingNav.searchPlaceholder} onChange={(e) => setDraft({ ...draft, floatingNav: { ...draft.floatingNav, searchPlaceholder: e.target.value } })} />
+          <input
+            className="input"
+            value={draft.floatingNav.searchPlaceholder}
+            onChange={(e) => setDraft({ ...draft, floatingNav: { ...draft.floatingNav, searchPlaceholder: e.target.value } })}
+          />
         </div>
       </div>
       <button className="btn btn-primary" style={{ width: "auto" }} onClick={() => onSave(draft)}>
@@ -640,7 +786,12 @@ async function parseMarkdownFile(
     ...parsed.data,
     title: String(parsed.data.title || fallbackTitle),
     slug: String(parsed.data.slug || fallbackTitle),
-    tags: Array.isArray(parsed.data.tags) ? parsed.data.tags : String(parsed.data.tags || "").split(",").map((s) => s.trim()).filter(Boolean),
+    tags: Array.isArray(parsed.data.tags)
+      ? parsed.data.tags
+      : String(parsed.data.tags || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
     body: parsed.body,
   };
 }
@@ -658,7 +809,11 @@ function parseFrontmatter(text: string): { data: Record<string, any>; body: stri
     const key = line.slice(0, idx).trim();
     const value = line.slice(idx + 1).trim();
     if (value.startsWith("[") && value.endsWith("]")) {
-      data[key] = value.slice(1, -1).split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+      data[key] = value
+        .slice(1, -1)
+        .split(",")
+        .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+        .filter(Boolean);
     } else if (value === "true" || value === "false") {
       data[key] = value === "true";
     } else {
@@ -673,18 +828,26 @@ function renderMarkdown(markdown: string): string {
   return escaped
     .split(/\n{2,}/)
     .map((block) => {
-      if (block.startsWith("### ")) return `<h3>${inline(block.slice(4))}</h3>`;
-      if (block.startsWith("## ")) return `<h2>${inline(block.slice(3))}</h2>`;
-      if (block.startsWith("# ")) return `<h1>${inline(block.slice(2))}</h1>`;
-      if (block.startsWith("&gt; ")) return `<blockquote>${inline(block.replace(/^&gt; /gm, ""))}</blockquote>`;
-      if (block.startsWith("- ")) return `<ul>${block.split(/\n/).map((line) => `<li>${inline(line.replace(/^- /, ""))}</li>`).join("")}</ul>`;
-      return `<p>${inline(block).replace(/\n/g, "<br />")}</p>`;
+      const trimmed = block.trim();
+      if (trimmed.startsWith("### ")) return `<h3>${inline(trimmed.slice(4))}</h3>`;
+      if (trimmed.startsWith("## ")) return `<h2>${inline(trimmed.slice(3))}</h2>`;
+      if (trimmed.startsWith("# ")) return `<h1>${inline(trimmed.slice(2))}</h1>`;
+      if (trimmed.startsWith("&gt; ")) return `<blockquote>${inline(trimmed.replace(/^&gt; /gm, ""))}</blockquote>`;
+      if (trimmed.startsWith("- ")) {
+        return `<ul>${trimmed
+          .split(/\n/)
+          .map((line) => `<li>${inline(line.replace(/^- /, ""))}</li>`)
+          .join("")}</ul>`;
+      }
+      return `<p>${inline(trimmed).replace(/\n/g, "<br />")}</p>`;
     })
     .join("");
 }
 
 function inline(text: string): string {
-  return text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>');
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2">$1</a>');
 }
 
 function previewDocument(post: PostItem, html: string, site: SiteConfig | null): string {
@@ -703,6 +866,11 @@ function previewDocument(post: PostItem, html: string, site: SiteConfig | null):
   const baseSize = typography?.baseSize || 18;
   const measure = typography?.measure || 38;
   const radius = typography?.radius || 2;
+  const summary = escapeHtml((post.summary || post.description || firstParagraph(post.body || "") || "这是一篇尚在撰写中的内容。").trim());
+  const outline = railOutline(extractMarkdownHeadings(post.body || ""));
+  const highlights = normalizeLines(post.kind === "project" ? post.projectHighlights : post.highlights);
+  const tags = normalizeTags(post.tags);
+  const topLink = post.kind === "project" ? "作品" : "随笔";
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -712,31 +880,152 @@ function previewDocument(post: PostItem, html: string, site: SiteConfig | null):
   <title>${escapeHtml(post.title || "预览")}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet" />
   <style>
     :root{--bg:${bg};--surface:${surface};--ink:${ink};--muted:${muted};--accent:${accent};--line:${line};--heading:${headingFont};--body:${bodyFont};--radius:${radius}px}
+    *{box-sizing:border-box}
     html{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:${baseSize}px;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-    body{margin:0;background:var(--bg);color:var(--ink)}
-    article{max-width:${measure}rem;margin:0 auto;padding:72px 24px}
+    body{margin:0;background:linear-gradient(180deg,color-mix(in srgb,var(--surface) 56%, var(--bg) 44%),var(--bg) 24%,var(--bg));color:var(--ink)}
+    .page{max-width:1360px;margin:0 auto;padding:40px 28px 72px;display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:56px;align-items:start}
+    article{max-width:min(${measure}rem,100%);margin:0 auto}
+    .crumb{display:inline-flex;align-items:center;gap:.5rem;color:var(--muted);font-size:.82rem;text-decoration:none}
+    .cover{width:100%;border-radius:calc(var(--radius) + 8px);margin:0 0 2rem;border:1px solid color-mix(in srgb,var(--line) 80%, transparent);display:block;object-fit:cover;max-height:420px}
     h1,h2,h3{font-family:var(--heading);font-weight:400;color:var(--ink);letter-spacing:0}
-    h1{font-size:clamp(2.2rem,6vw,3.2rem);line-height:1.04;margin:0 0 16px}
-    .meta{color:var(--muted);font:14px/1.5 var(--body);margin-bottom:56px}
-    .prose{line-height:1.7}.prose p,.prose ul,.prose blockquote{margin:1.4em 0}.prose h2{font-size:1.6rem;margin:2.2em 0 .6em}.prose h3{font-size:1.25rem;margin:1.8em 0 .5em}
-    .prose blockquote{border-left:2px solid var(--accent);padding-left:1.2rem;color:var(--muted);font-style:italic}
-    .prose code{background:var(--surface);padding:.1em .35em;border-radius:var(--radius)}.prose a{color:inherit;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--accent)}
-    .prose pre{background:var(--ink);color:var(--bg);padding:1.2rem;border-radius:var(--radius);overflow:auto}
+    h1{font-size:clamp(2.4rem,6vw,4.1rem);line-height:1.02;margin:1.2rem 0 .9rem}
+    .meta{display:flex;flex-wrap:wrap;gap:.75rem 1rem;color:var(--muted);font:14px/1.5 var(--body);margin-bottom:2.8rem}
+    .meta span::before{content:"";display:inline-block;width:.34rem;height:.34rem;border-radius:50%;background:color-mix(in srgb,var(--accent) 62%, transparent);margin-right:.55rem;vertical-align:middle}
+    .project-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem;padding-top:1.15rem;border-top:1px solid var(--line);margin-bottom:2.8rem}
+    .project-grid dt{font-size:.76rem;color:var(--muted);margin-bottom:.35rem}
+    .project-grid dd{margin:0}
+    .project-grid a{color:var(--accent);text-decoration:none}
+    .prose{line-height:1.78}
+    .prose p,.prose ul,.prose blockquote{margin:1.35em 0}
+    .prose h2{font-size:1.72rem;margin:2.1em 0 .65em}
+    .prose h3{font-size:1.28rem;margin:1.7em 0 .55em}
+    .prose blockquote{border-left:2px solid var(--accent);padding-left:1.15rem;color:var(--muted);font-style:italic}
+    .prose code{background:color-mix(in srgb,var(--surface) 78%, var(--bg) 22%);padding:.1em .35em;border-radius:var(--radius)}
+    .prose a{color:inherit;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--accent)}
+    .preview-rail{position:sticky;top:28px}
+    .preview-rail-card{border:1px solid var(--line);border-radius:calc(var(--radius) + 12px);background:color-mix(in srgb,var(--surface) 74%, var(--bg) 26%);padding:1.15rem 1rem}
+    .preview-rail-card h2{font-size:.95rem;margin:0 0 .9rem}
+    .preview-rail-section + .preview-rail-section{margin-top:1rem;padding-top:1rem;border-top:1px solid color-mix(in srgb,var(--line) 76%, transparent)}
+    .preview-rail-copy{font-size:.84rem;line-height:1.65;color:color-mix(in srgb,var(--ink) 88%, var(--muted))}
+    .preview-rail-list{list-style:none;padding:0;margin:.6rem 0 0}
+    .preview-rail-list li{font-size:.78rem;color:var(--muted);padding:.22rem 0}
+    .preview-rail-tags{display:flex;flex-wrap:wrap;gap:.45rem}
+    .preview-tag{border:1px solid var(--line);border-radius:999px;padding:.18rem .55rem;font-size:.72rem;color:var(--muted)}
+    @media (max-width: 1180px){.page{grid-template-columns:1fr}.preview-rail{display:none}}
   </style>
 </head>
 <body>
-  <article>
-    <h1>${escapeHtml(post.title || "未命名")}</h1>
-    <div class="meta">${escapeHtml(post.date || "")} / ${escapeHtml(post.category || "未分类")}</div>
-    <div class="prose">${html}</div>
-  </article>
+  <div class="page">
+    <article>
+      <a class="crumb" href="#">↖ ${topLink}</a>
+      ${post.cover ? `<img class="cover" src="${escapeHtml(post.cover)}" alt="" />` : ""}
+      <h1>${escapeHtml(post.title || "未命名内容")}</h1>
+      ${
+        post.kind === "project"
+          ? `<dl class="project-grid">
+              <div><dt>年份</dt><dd>${escapeHtml(post.year || post.date || "未填写")}</dd></div>
+              ${post.role ? `<div><dt>角色</dt><dd>${escapeHtml(post.role)}</dd></div>` : ""}
+              ${tags.length ? `<div><dt>标签</dt><dd>${escapeHtml(tags.join(" / "))}</dd></div>` : ""}
+              ${post.url ? `<div><dt>链接</dt><dd><a href="${escapeHtml(post.url)}">访问 ↗</a></dd></div>` : ""}
+            </dl>`
+          : `<div class="meta">
+              ${post.date ? `<span>${escapeHtml(post.date)}</span>` : ""}
+              ${post.category ? `<span>${escapeHtml(post.category)}</span>` : ""}
+              ${tags.map((tag) => `<span>#${escapeHtml(tag)}</span>`).join("")}
+            </div>`
+      }
+      <div class="prose">${html}</div>
+    </article>
+
+    <aside class="preview-rail">
+      <div class="preview-rail-card">
+        <h2>阅读预览</h2>
+        <div class="preview-rail-section">
+          <div class="preview-rail-copy">${summary}</div>
+        </div>
+        ${
+          highlights.length
+            ? `<div class="preview-rail-section">
+                <div class="preview-rail-copy">${post.kind === "project" ? "项目亮点" : "作者高亮"}</div>
+                <ul class="preview-rail-list">${highlights.map((item) => `<li>• ${escapeHtml(item)}</li>`).join("")}</ul>
+              </div>`
+            : ""
+        }
+        ${
+          post.contextNote
+            ? `<div class="preview-rail-section">
+                <div class="preview-rail-copy">${escapeHtml(post.contextNote)}</div>
+              </div>`
+            : ""
+        }
+        ${
+          outline.length
+            ? `<div class="preview-rail-section">
+                <div class="preview-rail-copy">大纲</div>
+                <ul class="preview-rail-list">${outline
+                  .map((item) => `<li>${item.level === 3 ? "· " : ""}${escapeHtml(item.text)}</li>`)
+                  .join("")}</ul>
+              </div>`
+            : ""
+        }
+        ${
+          tags.length
+            ? `<div class="preview-rail-section">
+                <div class="preview-rail-tags">${tags.map((tag) => `<span class="preview-tag">#${escapeHtml(tag)}</span>`).join("")}</div>
+              </div>`
+            : ""
+        }
+      </div>
+    </aside>
+  </div>
 </body>
 </html>`;
 }
 
+function firstParagraph(markdown: string): string {
+  const blocks = markdown
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const paragraph = blocks.find((block) => !/^#{1,6}\s/.test(block) && !/^[-*>]\s/.test(block));
+  return stripMarkdown(paragraph || "");
+}
+
+function stripMarkdown(value: string): string {
+  return value
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
+    .replace(/[`>*_-]/g, "")
+    .trim();
+}
+
+function extractMarkdownHeadings(markdown: string): Array<{ level: 2 | 3; text: string }> {
+  return markdown
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .flatMap((line) => {
+      const h2 = line.match(/^##\s+(.+)/);
+      if (h2) return [{ level: 2 as const, text: stripMarkdown(h2[1]) }];
+      const h3 = line.match(/^###\s+(.+)/);
+      if (h3) return [{ level: 3 as const, text: stripMarkdown(h3[1]) }];
+      return [];
+    });
+}
+
+function railOutline(items: Array<{ level: 2 | 3; text: string }>): Array<{ level: 2 | 3; text: string }> {
+  const h2 = items.filter((item) => item.level === 2);
+  if (h2.length >= 3) return h2.slice(0, 6);
+  return items.slice(0, 6);
+}
+
 function escapeHtml(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

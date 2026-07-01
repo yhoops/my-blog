@@ -47,3 +47,11 @@ _Avoid_: duplicate summary, footnote dump, implementation note
 **Reading Rail Pair**:
 The left knowledge rail and the Right Context Rail treated as one visibility group during reading mode. Entering reading mode hides both rails; hovering either rail's area reveals both together.
 _Avoid_: independent rail visibility, one-sided reveal, permanent reading clutter
+
+**Writing Workbench**:
+The admin content page where the author writes and prepares a writing or work page. Its primary surface is the main body editor; metadata, cover, context fields, and media controls are supporting editorial surfaces.
+_Avoid_: form page, metadata dashboard, narrow editor
+
+**Publish Preview**:
+A same-page preview state in the Writing Workbench that presents the current draft as a realistic public page before publishing. It supports returning to editing and publishing from the preview without opening a separate browser window.
+_Avoid_: popup preview, external tab, raw markdown preview

@@ -1,0 +1,14 @@
+[rtk] /!\ No hook installed — run `rtk init -g` for automatic token savings
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+$ astro dev --host --port 4321
+[2m10:58:31[22m [34m[types][39m Generated [2m1ms[22m
+[2m10:58:31[22m [34m[content][39m Syncing content
+[2m10:58:31[22m [34m[content][39m Synced content
+[2m10:58:31[22m [34m[vite][39m Port 4321 is in use, trying another one...
+
+[42m[1m astro [22m[49m [32mv5.18.2[39m [2mready in[22m 928 [2mms[22m
+
+[2m┃[22m Local    [36mhttp://localhost:4322/[39m
+[2m┃[22m Network  [36mhttp://192.168.9.105:4322/[39m
+
+[2m10:58:31[22m [32mwatching for file changes...[39m
