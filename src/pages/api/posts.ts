@@ -7,10 +7,6 @@ import { commitFile, deleteFile, readGitHubEnv } from "../../lib/github";
 export const prerender = false;
 
 const POSTS_DIR = "src/content/posts";
-const LIBRARIES = {
-  writing: "writing",
-  project: "work",
-} as const;
 
 interface PostPayload {
   slug: string;
@@ -33,6 +29,15 @@ interface PostPayload {
   role?: string;
   url?: string;
   body: string;
+}
+
+interface MigrationException {
+  sourceId: string;
+  reason: string;
+  library: "writing" | "work";
+  folder: string;
+  title: string;
+  repairable: boolean;
 }
 
 function buildMarkdown(p: PostPayload): string {
@@ -119,6 +124,39 @@ async function getPosts() {
   return getCollection("posts");
 }
 
+function findMigrationExceptions(posts: Awaited<ReturnType<typeof getPosts>>): MigrationException[] {
+  const seen = new Set<string>();
+  const issues: MigrationException[] = [];
+
+  for (const post of posts) {
+    const sourceId = normalizeId(post.id);
+    const kind = post.data.kind;
+    const canonical = post.data.canonicalSlug || fileSlugFromId(post.id);
+    const library = kind === "project" ? "work" : "writing";
+    const folder = post.data.folder || folderFromId(post.id);
+    const title = post.data.title || fileSlugFromId(post.id);
+
+    if (kind !== "writing" && kind !== "project") {
+      issues.push({ sourceId, reason: "Missing or invalid content kind", library: "writing", folder, title, repairable: false });
+      continue;
+    }
+
+    if (!canonical || !slugify(canonical)) {
+      issues.push({ sourceId, reason: "Missing canonical slug", library, folder, title, repairable: true });
+      continue;
+    }
+
+    const scopeKey = `${kind}:${slugify(canonical)}`;
+    if (seen.has(scopeKey)) {
+      issues.push({ sourceId, reason: "Canonical slug collides inside the same library", library, folder, title, repairable: false });
+      continue;
+    }
+    seen.add(scopeKey);
+  }
+
+  return issues;
+}
+
 async function findCanonicalConflict(kind: "writing" | "project", canonicalSlug: string, currentId?: string) {
   const posts = await getPosts();
   return posts.find((post) => {
@@ -150,6 +188,7 @@ function legacyAliasSet(kind: "writing" | "project", canonicalSlug: string, file
 export async function GET(context: APIContext): Promise<Response> {
   if (!(await requireAuth(context))) return unauthorized();
   const posts = await getPosts();
+  const exceptions = findMigrationExceptions(posts);
   const list = posts.map((p) => {
     const slug = p.data.canonicalSlug || fileSlugFromId(p.id);
     const folder = p.data.folder || folderFromId(p.id);
@@ -167,7 +206,7 @@ export async function GET(context: APIContext): Promise<Response> {
       body: (p as { body?: string }).body ?? "",
     };
   });
-  return json({ ok: true, posts: list });
+  return json({ ok: true, posts: list, exceptions });
 }
 
 export async function PUT(context: APIContext): Promise<Response> {
@@ -239,11 +278,15 @@ export async function PUT(context: APIContext): Promise<Response> {
 export async function POST(context: APIContext): Promise<Response> {
   if (!(await requireAuth(context))) return unauthorized();
 
-  let payload: { posts?: PostPayload[] };
+  let payload: { posts?: PostPayload[]; action?: string; sourceId?: string };
   try {
-    payload = (await context.request.json()) as { posts?: PostPayload[] };
+    payload = (await context.request.json()) as { posts?: PostPayload[]; action?: string; sourceId?: string };
   } catch {
     return json({ ok: false, error: "请求格式错误" }, 400);
+  }
+
+  if (payload.action === "repair") {
+    return repairException(context, payload.sourceId || "");
   }
 
   const imports = payload.posts ?? [];
@@ -285,6 +328,7 @@ export async function POST(context: APIContext): Promise<Response> {
         canonicalSlug,
         aliases: [],
         slug: canonicalSlug,
+        body: item.body,
       }),
       `content: 导入《${title}》`,
     );
@@ -293,6 +337,61 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const failed = results.filter((r) => !r.ok);
   return json({ ok: failed.length === 0, results, failed: failed.length }, failed.length ? 207 : 200);
+}
+
+async function repairException(context: APIContext, sourceId: string): Promise<Response> {
+  if (!sourceId) return json({ ok: false, error: "缺少 sourceId" }, 400);
+
+  const post = await findPostByLegacySlug(sourceId);
+  if (!post) return json({ ok: false, error: "未找到对应内容" }, 404);
+
+  const exceptions = findMigrationExceptions(await getPosts());
+  const target = exceptions.find((item) => item.sourceId === sourceId);
+  if (!target) return json({ ok: false, error: "该记录当前不需要修复" }, 409);
+  if (!target.repairable) return json({ ok: false, error: "该记录需要人工处理" }, 409);
+
+  const kind = post.data.kind || "writing";
+  const canonicalSlug = slugify(post.data.title || fileSlugFromId(post.id));
+  if (!canonicalSlug) return json({ ok: false, error: "无法安全生成 canonical slug" }, 409);
+
+  const conflict = await findCanonicalConflict(kind, canonicalSlug, post.id);
+  if (conflict) return json({ ok: false, error: "修复会导致 slug 冲突" }, 409);
+
+  const env = readGitHubEnv(getEnv(context));
+  const folder = post.data.folder || folderFromId(post.id);
+  const result = await commitFile(
+    env,
+    `${POSTS_DIR}/${normalizeId(post.id)}.md`,
+    buildMarkdown({
+      title: post.data.title,
+      description: post.data.description,
+      canonicalSlug,
+      aliases: legacyAliasSet(kind, canonicalSlug, normalizeId(post.id), post.data.aliases ?? []),
+      summary: post.data.summary,
+      highlights: post.data.highlights,
+      projectHighlights: post.data.projectHighlights,
+      contextNote: post.data.contextNote,
+      date: post.data.date instanceof Date ? post.data.date.toISOString().slice(0, 10) : String(post.data.date || ""),
+      kind,
+      tags: post.data.tags,
+      category: post.data.category,
+      folder,
+      cover: post.data.cover,
+      draft: post.data.draft,
+      year: post.data.year,
+      role: post.data.role,
+      url: post.data.url,
+      slug: canonicalSlug,
+      body: (post as { body?: string }).body ?? "",
+    }),
+    `content: 修复《${post.data.title}》的 canonical slug`,
+  );
+
+  if (!result.ok) {
+    return json({ ok: false, error: result.message ?? "修复失败" }, 502);
+  }
+
+  return json({ ok: true, repaired: true, sourceId, canonicalSlug, commitUrl: result.commitUrl });
 }
 
 export async function DELETE(context: APIContext): Promise<Response> {

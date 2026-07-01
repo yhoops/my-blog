@@ -455,66 +455,74 @@ input[type="color"] {
   min-height: calc(100vh - 7rem);
 }
 .content-explorer {
-  background: var(--s-panel);
-  border: 1px solid var(--s-border);
-  border-radius: 18px;
-  padding: 0.75rem;
+  background: color-mix(in srgb, var(--s-panel) 88%, var(--s-bg) 12%);
+  border: 1px solid color-mix(in srgb, var(--s-border) 84%, transparent);
+  border-radius: 22px;
+  padding: 0.9rem;
   overflow: auto;
   position: sticky;
   top: 0;
   height: calc(100vh - 8rem);
   scrollbar-width: thin;
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--s-text) 6%, transparent);
 }
 .explorer-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.4rem 0.35rem 0.9rem;
-  border-bottom: 1px solid var(--s-border);
-  margin-bottom: 0.65rem;
+  padding: 0.35rem 0.25rem 0.95rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--s-border) 78%, transparent);
+  margin-bottom: 0.8rem;
 }
 .explorer-subcopy {
-  margin-top: 0.18rem;
+  margin-top: 0.24rem;
   color: var(--s-muted);
-  font-size: 0.74rem;
-  line-height: 1.45;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  max-width: 15rem;
 }
 .library-switcher {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.45rem;
-  margin-bottom: 0.8rem;
+  gap: 0.4rem;
+  margin-bottom: 0.95rem;
+  padding: 0.16rem;
+  border: 1px solid color-mix(in srgb, var(--s-border) 80%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--s-panel-2) 62%, var(--s-bg) 38%);
 }
 .library-pill {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  border: 1px solid var(--s-border);
+  border: 1px solid transparent;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--s-panel-2) 82%, var(--s-bg) 18%);
+  background: transparent;
   color: var(--s-muted);
-  padding: 0.55rem 0.75rem;
+  padding: 0.55rem 0.7rem;
   font: inherit;
   cursor: pointer;
   transition:
     border-color 0.14s ease,
     background 0.14s ease,
-    color 0.14s ease;
+    color 0.14s ease,
+    box-shadow 0.14s ease;
 }
 .library-pill:hover,
 .library-pill.active {
   color: var(--s-text);
-  border-color: color-mix(in srgb, var(--s-accent) 30%, var(--s-border));
-  background: color-mix(in srgb, var(--s-accent-soft) 42%, var(--s-panel));
+  border-color: color-mix(in srgb, var(--s-accent) 18%, var(--s-border));
+  background: color-mix(in srgb, var(--s-panel) 86%, var(--s-accent-soft) 14%);
+  box-shadow: 0 1px 0 color-mix(in srgb, #fff 42%, transparent);
 }
 .library-pill small {
   min-width: 1.4rem;
   text-align: center;
   font-size: 0.72rem;
   color: inherit;
-  border-left: 1px solid color-mix(in srgb, var(--s-border) 82%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--s-border) 72%, transparent);
   padding-left: 0.55rem;
 }
 .eyebrow {
@@ -526,9 +534,9 @@ input[type="color"] {
 .icon-mini {
   width: 32px;
   height: 32px;
-  border-radius: 10px;
-  border: 1px solid var(--s-border);
-  background: var(--s-panel-2);
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--s-border) 82%, transparent);
+  background: color-mix(in srgb, var(--s-panel-2) 78%, var(--s-bg) 22%);
   color: var(--s-text);
   cursor: pointer;
   transition:
@@ -537,7 +545,7 @@ input[type="color"] {
     transform 0.15s ease;
 }
 .icon-mini:hover {
-  background: var(--s-panel-3);
+  background: color-mix(in srgb, var(--s-panel-3) 76%, var(--s-bg) 24%);
   border-color: color-mix(in srgb, var(--s-accent) 28%, var(--s-border));
   transform: translateY(-1px);
 }
@@ -552,8 +560,8 @@ input[type="color"] {
   background: transparent;
   color: var(--s-muted);
   text-align: left;
-  border-radius: 9px;
-  padding: 0.38rem 0.5rem;
+  border-radius: 11px;
+  padding: 0.42rem 0.56rem;
   font: inherit;
   cursor: pointer;
   transition:
@@ -562,18 +570,21 @@ input[type="color"] {
     transform 0.14s ease;
 }
 .explorer-root {
-  margin-bottom: 0.3rem;
-  background: color-mix(in srgb, var(--s-panel-2) 76%, var(--s-bg) 24%);
+  margin-bottom: 0.38rem;
+  background: color-mix(in srgb, var(--s-panel-2) 72%, var(--s-bg) 28%);
+  border: 1px solid color-mix(in srgb, var(--s-border) 70%, transparent);
 }
 .folder-node:hover,
 .post-node:hover,
 .file-row:hover,
 .folder-node.active {
-  background: var(--s-panel-2);
+  background: color-mix(in srgb, var(--s-panel-2) 86%, var(--s-bg) 14%);
   color: var(--s-text);
 }
 .folder-node.active {
-  box-shadow: inset 3px 0 0 var(--s-accent);
+  box-shadow:
+    inset 3px 0 0 var(--s-accent),
+    0 1px 0 color-mix(in srgb, #fff 34%, transparent);
 }
 .folder-node:hover,
 .post-node:hover {
@@ -583,22 +594,66 @@ input[type="color"] {
   font-weight: 600;
 }
 .folder-children {
-  margin-left: 0.85rem;
-  border-left: 1px solid var(--s-border);
-  padding-left: 0.35rem;
+  margin-left: 0.9rem;
+  border-left: 1px solid color-mix(in srgb, var(--s-border) 72%, transparent);
+  padding-left: 0.42rem;
+}
+.folder-children-root {
+  margin-top: 0.22rem;
 }
 .post-node {
-  font-size: 0.78rem;
-  padding-left: 1.15rem;
+  position: relative;
+  font-size: 0.79rem;
+  padding-left: 1.05rem;
 }
 .post-node span {
   color: var(--s-accent);
+  font-size: 0.7rem;
 }
 .explorer-empty {
-  margin: 0.65rem 0 0;
-  padding: 0.8rem 0.2rem 0.2rem;
+  margin: 0.72rem 0 0;
+  padding: 0.9rem 0.35rem 0.3rem;
   color: var(--s-muted);
   font-size: 0.76rem;
+  line-height: 1.5;
+}
+.exception-list {
+  display: grid;
+  gap: 0.55rem;
+}
+.exception-row {
+  display: grid;
+  gap: 0.16rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--s-border) 82%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--s-panel-2) 74%, var(--s-bg) 26%);
+}
+.exception-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.exception-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 0 0 auto;
+}
+.exception-row-head .btn {
+  flex: 0 0 auto;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.74rem;
+}
+.exception-row strong {
+  font-size: 0.8rem;
+  color: var(--s-text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.exception-row span {
+  font-size: 0.76rem;
+  color: var(--s-muted);
   line-height: 1.5;
 }
 .editor-canvas {

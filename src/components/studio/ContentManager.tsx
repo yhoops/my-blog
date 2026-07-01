@@ -35,6 +35,15 @@ interface FolderNode {
   posts: PostItem[];
 }
 
+interface MigrationException {
+  sourceId: string;
+  reason: string;
+  library: "writing" | "work";
+  folder: string;
+  title: string;
+  repairable: boolean;
+}
+
 type LibraryKey = "writing" | "work";
 
 const EMPTY: PostItem & { body: string } = {
@@ -90,6 +99,9 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   const [folderPromptOpen, setFolderPromptOpen] = useState(false);
   const [folderDraft, setFolderDraft] = useState("");
   const [deleteTarget, setDeleteTarget] = useState("");
+  const [exceptions, setExceptions] = useState<MigrationException[]>([]);
+  const [slugConflict, setSlugConflict] = useState("");
+  const [repairingSourceId, setRepairingSourceId] = useState("");
   const importRef = useRef<HTMLInputElement | null>(null);
 
   const content = useMemo(() => normalizeContent(config?.content), [config]);
@@ -113,11 +125,12 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   async function load() {
     setLoading(true);
     const [postRes, configRes] = await Promise.all([fetch("/api/posts"), fetch("/api/config")]);
-    const postData = (await postRes.json()) as { ok: boolean; posts?: PostItem[] };
+    const postData = (await postRes.json()) as { ok: boolean; posts?: PostItem[]; exceptions?: MigrationException[] };
     const configData = (await configRes.json()) as { ok: boolean; config?: SiteConfig };
     if (postData.ok && postData.posts) {
       const next = postData.posts.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
       setPosts(next);
+      setExceptions(postData.exceptions ?? []);
       if (!editing.title && next[0]) selectPost(next[0]);
     }
     if (configData.ok && configData.config) setConfig(configData.config);
@@ -141,6 +154,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     setSelectedFolder(editable.folder || "");
     setPreviewing(false);
     setStatus("");
+    setSlugConflict("");
   }
 
   function newPost(kind: "writing" | "project" = activeLibrary === "work" ? "project" : "writing") {
@@ -153,6 +167,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     });
     setPreviewing(false);
     setStatus("");
+    setSlugConflict("");
   }
 
   function set<K extends keyof typeof editing>(key: K, value: (typeof editing)[K]) {
@@ -165,6 +180,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
       return false;
     }
     setStatus("正在保存...");
+    setSlugConflict("");
     const res = await fetch("/api/posts", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -184,6 +200,9 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
       setStatus("已保存并提交到 GitHub");
       await load();
       return true;
+    }
+    if (res.status === 409) {
+      setSlugConflict("当前内容库中已存在相同的 slug，请换一个公开 slug。");
     }
     setStatus(data.error || "保存失败");
     return false;
@@ -319,6 +338,47 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     setPendingLibrary(null);
   }
 
+  function locateException(target: MigrationException) {
+    const match = posts.find((post) => post.sourceId === target.sourceId);
+    setActiveLibrary(target.library);
+    setSelectedFolder(target.folder || "");
+    setPreviewing(false);
+    setPendingLibrary(null);
+    setSlugConflict("");
+    if (match) {
+      selectPost(match);
+      return;
+    }
+    setEditing({
+      ...EMPTY,
+      library: target.library,
+      kind: target.library === "work" ? "project" : "writing",
+      folder: target.folder || "",
+      title: target.title || "",
+      sourceId: target.sourceId,
+    });
+    setStatus(`已定位到异常记录：${target.sourceId}`);
+  }
+
+  async function repairException(target: MigrationException) {
+    if (!target.repairable) return;
+    setRepairingSourceId(target.sourceId);
+    setStatus("正在修复异常记录...");
+    const res = await fetch("/api/posts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "repair", sourceId: target.sourceId }),
+    });
+    const data = (await res.json()) as { ok: boolean; error?: string; canonicalSlug?: string };
+    if (data.ok) {
+      setStatus(`已修复 ${target.sourceId}${data.canonicalSlug ? ` -> ${data.canonicalSlug}` : ""}`);
+      await load();
+      return;
+    }
+    setStatus(data.error || "修复失败");
+    setRepairingSourceId("");
+  }
+
   if (loading) return <p className="hint">正在加载...</p>;
 
   return (
@@ -389,6 +449,14 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
                 内容已整理为“随笔 / 作品”两个内容库，公开地址已从文件路径中解耦。旧层级地址仍会保留跳转。
               </div>
             )}
+
+            {exceptions.length > 0 && (
+              <div className="banner warn">
+                发现 {exceptions.length} 条需要人工处理的内容记录，系统未自动迁移这些异常项。
+              </div>
+            )}
+
+            {slugConflict && <div className="banner warn">{slugConflict}</div>}
 
             <div className="workbench-topbar">
               <div className="toolbar">
@@ -612,6 +680,38 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
                 ))
               )}
             </section>
+
+            {exceptions.length > 0 && (
+              <section className="panel compact-panel">
+                <div className="panel-headline">
+                  <h3>迁移异常列表</h3>
+                </div>
+                <div className="exception-list">
+                  {exceptions.map((item) => (
+                    <div className="exception-row" key={`${item.sourceId}-${item.reason}`}>
+                      <div className="exception-row-head">
+                        <strong>{item.sourceId}</strong>
+                        <div className="exception-row-actions">
+                          {item.repairable && (
+                            <button
+                              className="btn btn-primary"
+                              onClick={() => repairException(item)}
+                              disabled={repairingSourceId === item.sourceId}
+                            >
+                              {repairingSourceId === item.sourceId ? "修复中" : "一键修复"}
+                            </button>
+                          )}
+                          <button className="btn" onClick={() => locateException(item)}>
+                            定位
+                          </button>
+                        </div>
+                      </div>
+                      <span>{item.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
             <ContentSettingsInline content={content} onSave={saveContentSettings} />
           </>
@@ -852,7 +952,7 @@ function FolderTree({
         <strong>{rootLabel}</strong>
       </button>
       {hasChildren ? (
-        <div className="folder-children">
+        <div className="folder-children folder-children-root">
           {node.children.map((child) => (
             <FolderBranch key={child.path} node={child} selected={selected} onSelect={onSelect} onPost={onPost} />
           ))}
