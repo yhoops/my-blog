@@ -38,6 +38,11 @@ interface MigrationException {
   folder: string;
   title: string;
   repairable: boolean;
+  conflictWith?: {
+    sourceId: string;
+    folder: string;
+    title: string;
+  };
 }
 
 function buildMarkdown(p: PostPayload): string {
@@ -125,7 +130,7 @@ async function getPosts() {
 }
 
 function findMigrationExceptions(posts: Awaited<ReturnType<typeof getPosts>>): MigrationException[] {
-  const seen = new Set<string>();
+  const seen = new Map<string, { sourceId: string; title: string; folder: string }>();
   const issues: MigrationException[] = [];
 
   for (const post of posts) {
@@ -148,10 +153,23 @@ function findMigrationExceptions(posts: Awaited<ReturnType<typeof getPosts>>): M
 
     const scopeKey = `${kind}:${slugify(canonical)}`;
     if (seen.has(scopeKey)) {
-      issues.push({ sourceId, reason: "Canonical slug collides inside the same library", library, folder, title, repairable: false });
+      const conflict = seen.get(scopeKey)!;
+      issues.push({
+        sourceId,
+        reason: "Canonical slug collides inside the same library",
+        library,
+        folder,
+        title,
+        repairable: false,
+        conflictWith: {
+          sourceId: conflict.sourceId,
+          title: conflict.title,
+          folder: conflict.folder,
+        },
+      });
       continue;
     }
-    seen.add(scopeKey);
+    seen.set(scopeKey, { sourceId, title, folder });
   }
 
   return issues;

@@ -42,6 +42,11 @@ interface MigrationException {
   folder: string;
   title: string;
   repairable: boolean;
+  conflictWith?: {
+    sourceId: string;
+    folder: string;
+    title: string;
+  };
 }
 
 type LibraryKey = "writing" | "work";
@@ -699,6 +704,23 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
                               disabled={repairingSourceId === item.sourceId}
                             >
                               {repairingSourceId === item.sourceId ? "修复中" : "一键修复"}
+                            </button>
+                          )}
+                          {item.conflictWith && (
+                            <button
+                              className="btn"
+                              onClick={() =>
+                                locateException({
+                                  sourceId: item.conflictWith!.sourceId,
+                                  reason: "Conflict counterpart",
+                                  library: item.library,
+                                  folder: item.conflictWith!.folder,
+                                  title: item.conflictWith!.title,
+                                  repairable: false,
+                                })
+                              }
+                            >
+                              定位冲突项
                             </button>
                           )}
                           <button className="btn" onClick={() => locateException(item)}>
