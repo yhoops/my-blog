@@ -50,6 +50,7 @@ interface MigrationException {
 }
 
 type LibraryKey = "writing" | "work";
+type InspectorGroup = "preview" | "basics" | "project";
 
 const EMPTY: PostItem & { body: string } = {
   slug: "",
@@ -97,6 +98,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   const [editing, setEditing] = useState<PostItem & { body: string }>({ ...EMPTY });
   const [selectedFolder, setSelectedFolder] = useState("");
   const [activeLibrary, setActiveLibrary] = useState<LibraryKey>("writing");
+  const [activeInspectorGroup, setActiveInspectorGroup] = useState<InspectorGroup>("preview");
   const [pendingLibrary, setPendingLibrary] = useState<LibraryKey | null>(null);
   const [showMigrationNotice, setShowMigrationNotice] = useState(false);
   const [status, setStatus] = useState("");
@@ -127,6 +129,22 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
   );
   const previewHtml = useMemo(() => previewDocument(editing, renderMarkdown(editing.body), config), [editing, config]);
 
+  useEffect(() => {
+    load();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const seen = window.localStorage.getItem(MIGRATION_NOTICE_KEY);
+    if (!seen) setShowMigrationNotice(true);
+  }, []);
+
+  useEffect(() => {
+    if (editing.kind !== "project" && activeInspectorGroup === "project") {
+      setActiveInspectorGroup("preview");
+    }
+  }, [editing.kind, activeInspectorGroup]);
+
   async function load() {
     setLoading(true);
     const [postRes, configRes] = await Promise.all([fetch("/api/posts"), fetch("/api/config")]);
@@ -142,21 +160,12 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     setLoading(false);
   }
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const seen = window.localStorage.getItem(MIGRATION_NOTICE_KEY);
-    if (!seen) setShowMigrationNotice(true);
-  }, []);
-
   function selectPost(post: PostItem) {
     const editable = toEditablePost(post);
     setEditing(editable);
     setActiveLibrary(resolveLibrary(editable));
     setSelectedFolder(editable.folder || "");
+    setActiveInspectorGroup("preview");
     setPreviewing(false);
     setStatus("");
     setSlugConflict("");
@@ -170,6 +179,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
       library,
       folder: selectedFolder,
     });
+    setActiveInspectorGroup("preview");
     setPreviewing(false);
     setStatus("");
     setSlugConflict("");
@@ -304,23 +314,6 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     if (importRef.current) importRef.current.value = "";
   }
 
-  const visiblePosts = selectedFolder
-    ? libraryPosts.filter((post) => postFolder(post) === selectedFolder)
-    : libraryPosts.filter((post) => !postFolder(post));
-
-  const currentDeleteSlug = editing.slug ? (editing.folder ? `${editing.folder}/${editing.slug}` : editing.slug) : "";
-
-  function isDirty() {
-    return Boolean(
-      editing.title ||
-        (editing.body || "").trim() !== "#" ||
-        editing.description ||
-        editing.summary ||
-        editing.contextNote ||
-        normalizeTags(editing.tags).length > 0,
-    );
-  }
-
   function requestLibrarySwitch(nextLibrary: LibraryKey) {
     if (nextLibrary === activeLibrary) return;
     if (isDirty()) {
@@ -340,6 +333,7 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
       library: nextLibrary,
       folder: "",
     });
+    setActiveInspectorGroup("preview");
     setPendingLibrary(null);
   }
 
@@ -377,12 +371,30 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
     const data = (await res.json()) as { ok: boolean; error?: string; canonicalSlug?: string };
     if (data.ok) {
       setStatus(`已修复 ${target.sourceId}${data.canonicalSlug ? ` -> ${data.canonicalSlug}` : ""}`);
+      setRepairingSourceId("");
       await load();
       return;
     }
     setStatus(data.error || "修复失败");
     setRepairingSourceId("");
   }
+
+  function isDirty() {
+    return Boolean(
+      editing.title ||
+        (editing.body || "").trim() !== "#" ||
+        editing.description ||
+        editing.summary ||
+        editing.contextNote ||
+        normalizeTags(editing.tags).length > 0,
+    );
+  }
+
+  const visiblePosts = selectedFolder
+    ? libraryPosts.filter((post) => postFolder(post) === selectedFolder)
+    : libraryPosts.filter((post) => !postFolder(post));
+
+  const currentDeleteSlug = editing.slug ? (editing.folder ? `${editing.folder}/${editing.slug}` : editing.slug) : "";
 
   if (loading) return <p className="hint">正在加载...</p>;
 
@@ -465,12 +477,25 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
 
             <div className="workbench-topbar">
               <div className="toolbar">
-                <button className="btn btn-primary" style={{ width: "auto" }} onClick={() => newPost("writing")}>
-                  新建随笔
-                </button>
-                <button className="btn" onClick={() => newPost("project")}>
-                  新建作品
-                </button>
+                {activeLibrary === "writing" ? (
+                  <>
+                    <button className="btn btn-primary" style={{ width: "auto" }} onClick={() => newPost("writing")}>
+                      新建随笔
+                    </button>
+                    <button className="btn" onClick={() => newPost("project")}>
+                      新建作品
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button className="btn btn-primary" style={{ width: "auto" }} onClick={() => newPost("project")}>
+                      新建作品
+                    </button>
+                    <button className="btn" onClick={() => newPost("writing")}>
+                      新建随笔
+                    </button>
+                  </>
+                )}
                 <button className="btn" onClick={() => importRef.current?.click()}>
                   导入 MD
                 </button>
@@ -492,176 +517,223 @@ export default function ContentManager({ githubConfigured }: { githubConfigured:
               </div>
             )}
 
-            <section className="editor-workspace">
-              <div className="editor-meta-strip">
-                <div className="meta-field">
-                  <label>内容类型</label>
-                  <select
-                    className="ghost-input"
-                    value={editing.kind}
-                    onChange={(e) => {
-                      const kind = e.target.value as "writing" | "project";
-                      set("kind", kind);
-                      set("library", kind === "project" ? "work" : "writing");
-                    }}
-                  >
-                    <option value="writing">随笔</option>
-                    <option value="project">作品</option>
-                  </select>
+            <section className="editor-workspace editor-workspace--with-inspector">
+              <div className="editor-main-column">
+                <div className="editor-meta-strip">
+                  <div className="meta-field">
+                    <label>内容类型</label>
+                    <select
+                      className="ghost-input"
+                      value={editing.kind}
+                      onChange={(e) => {
+                        const kind = e.target.value as "writing" | "project";
+                        set("kind", kind);
+                        set("library", kind === "project" ? "work" : "writing");
+                        setActiveInspectorGroup("preview");
+                      }}
+                    >
+                      <option value="writing">随笔</option>
+                      <option value="project">作品</option>
+                    </select>
+                  </div>
+
+                  <div className="meta-field">
+                    <label>分类</label>
+                    <input
+                      className="ghost-input"
+                      list="post-categories"
+                      value={editing.category}
+                      placeholder="未分类"
+                      onChange={(e) => set("category", e.target.value)}
+                    />
+                    <datalist id="post-categories">
+                      {content.categories.map((cat) => (
+                        <option value={cat} key={cat} />
+                      ))}
+                    </datalist>
+                  </div>
+
+                  <div className="meta-field">
+                    <label>发布日期</label>
+                    <input className="ghost-input" type="date" value={editing.date} onChange={(e) => set("date", e.target.value)} />
+                  </div>
+
+                  <label className="meta-toggle-card">
+                    <span>草稿状态</span>
+                    <span className="check-row">
+                      <input type="checkbox" checked={Boolean(editing.draft)} onChange={(e) => set("draft", e.target.checked)} />
+                      仅后台可见
+                    </span>
+                  </label>
+
+                  <div className="meta-field meta-field--path">
+                    <label>保存位置</label>
+                    <div className="selected-path">{selectedFolder || "内容库根目录"}</div>
+                  </div>
                 </div>
 
-                <div className="meta-field">
-                  <label>分类</label>
-                  <input
-                    className="ghost-input"
-                    list="post-categories"
-                    value={editing.category}
-                    placeholder="未分类"
-                    onChange={(e) => set("category", e.target.value)}
+                <section className="editor-main-card editor-main-surface">
+                  <div className="title-grid">
+                    <input
+                      className="ghost-input title-input"
+                      value={editing.title}
+                      placeholder="标题"
+                      onChange={(e) => set("title", e.target.value)}
+                    />
+                    <input
+                      className="ghost-input slug-input"
+                      value={editing.canonicalSlug || editing.slug}
+                      placeholder="公开 slug"
+                      onChange={(e) => {
+                        set("slug", e.target.value);
+                        set("canonicalSlug", e.target.value);
+                      }}
+                    />
+                  </div>
+                  <textarea
+                    className="article-textarea article-textarea--workbench"
+                    value={editing.body}
+                    placeholder={"# \n\n从这里开始写作..."}
+                    onChange={(e) => set("body", e.target.value)}
                   />
-                  <datalist id="post-categories">
-                    {content.categories.map((cat) => (
-                      <option value={cat} key={cat} />
-                    ))}
-                  </datalist>
-                </div>
-
-                <div className="meta-field">
-                  <label>发布日期</label>
-                  <input className="ghost-input" type="date" value={editing.date} onChange={(e) => set("date", e.target.value)} />
-                </div>
-
-                <label className="meta-toggle-card">
-                  <span>草稿状态</span>
-                  <span className="check-row">
-                    <input type="checkbox" checked={Boolean(editing.draft)} onChange={(e) => set("draft", e.target.checked)} />
-                    仅后台可见
-                  </span>
-                </label>
-
-                <div className="meta-field meta-field--path">
-                  <label>保存位置</label>
-                  <div className="selected-path">{selectedFolder || "内容库根目录"}</div>
-                </div>
+                </section>
               </div>
 
-              <section className="editor-main-card editor-main-surface">
-                <div className="title-grid">
-                  <input
-                    className="ghost-input title-input"
-                    value={editing.title}
-                    placeholder="标题"
-                    onChange={(e) => set("title", e.target.value)}
-                  />
-                  <input
-                    className="ghost-input slug-input"
-                    value={editing.canonicalSlug || editing.slug}
-                    placeholder="公开 slug"
-                    onChange={(e) => {
-                      set("slug", e.target.value);
-                      set("canonicalSlug", e.target.value);
-                    }}
-                  />
+              <aside className="inspector-rail">
+                <div className="inspector-card">
+                  <div className="inspector-head">
+                    <div>
+                      <div className="eyebrow">Inspector</div>
+                      <strong>
+                        {activeInspectorGroup === "preview"
+                          ? "阅读前预览"
+                          : activeInspectorGroup === "project"
+                            ? "作品信息"
+                            : "基础信息"}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="inspector-tabs">
+                    <button
+                      className={`inspector-tab ${activeInspectorGroup === "preview" ? "active" : ""}`}
+                      onClick={() => setActiveInspectorGroup("preview")}
+                    >
+                      预览
+                    </button>
+                    <button
+                      className={`inspector-tab ${activeInspectorGroup === "basics" ? "active" : ""}`}
+                      onClick={() => setActiveInspectorGroup("basics")}
+                    >
+                      基础
+                    </button>
+                    {editing.kind === "project" && (
+                      <button
+                        className={`inspector-tab ${activeInspectorGroup === "project" ? "active" : ""}`}
+                        onClick={() => setActiveInspectorGroup("project")}
+                      >
+                        作品
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="inspector-panel-stack">
+                    {activeInspectorGroup === "preview" && (
+                      <section className="inspector-panel">
+                        <div className="inspector-panel-caption">发布前阅读判断</div>
+                        <div className="editor-fields inspector-fields">
+                          <div className="field">
+                            <label>右侧预览摘要</label>
+                            <textarea
+                              className="ghost-input meta-summary"
+                              value={editing.summary || ""}
+                              placeholder="留空时会优先使用文章摘要，再回退到正文首段"
+                              onChange={(e) => set("summary", e.target.value)}
+                            />
+                          </div>
+                          <div className="field">
+                            <label>{editing.kind === "project" ? "项目亮点" : "作者高亮"}</label>
+                            <textarea
+                              className="ghost-input meta-summary"
+                              value={(editing.kind === "project" ? editing.projectHighlights : editing.highlights)?.join("\n") || ""}
+                              placeholder="每行一条，最多 3 条"
+                              onChange={(e) =>
+                                editing.kind === "project"
+                                  ? set("projectHighlights", splitLines(e.target.value))
+                                  : set("highlights", splitLines(e.target.value))
+                              }
+                            />
+                          </div>
+                          <div className="field">
+                            <label>语境备注</label>
+                            <textarea
+                              className="ghost-input meta-summary"
+                              value={editing.contextNote || ""}
+                              placeholder="补充这篇内容的背景、约束或写作缘由"
+                              onChange={(e) => set("contextNote", e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </section>
+                    )}
+
+                    {activeInspectorGroup === "basics" && (
+                      <section className="inspector-panel">
+                        <div className="inspector-panel-caption">基础发布信息</div>
+                        <div className="editor-fields inspector-fields">
+                          <div className="field">
+                            <label>文章摘要</label>
+                            <textarea
+                              className="ghost-input meta-summary"
+                              value={editing.description}
+                              placeholder="用于开放页描述与列表摘要"
+                              onChange={(e) => set("description", e.target.value)}
+                            />
+                          </div>
+                          <div className="field">
+                            <label>封面图</label>
+                            <input
+                              className="ghost-input"
+                              value={editing.cover || ""}
+                              placeholder="https://..."
+                              onChange={(e) => set("cover", e.target.value)}
+                            />
+                          </div>
+                          <div className="field">
+                            <label>标签</label>
+                            <input
+                              className="ghost-input"
+                              value={normalizeTags(editing.tags).join(", ")}
+                              placeholder="使用逗号分隔，例如：写作, 设计"
+                              onChange={(e) => set("tags", e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </section>
+                    )}
+
+                    {editing.kind === "project" && activeInspectorGroup === "project" && (
+                      <section className="inspector-panel">
+                        <div className="inspector-panel-caption">项目判断信息</div>
+                        <div className="editor-fields inspector-fields">
+                          <div className="field">
+                            <label>年份</label>
+                            <input className="ghost-input" value={editing.year || ""} placeholder="2026" onChange={(e) => set("year", e.target.value)} />
+                          </div>
+                          <div className="field">
+                            <label>角色</label>
+                            <input className="ghost-input" value={editing.role || ""} placeholder="设计 / 开发 / 写作" onChange={(e) => set("role", e.target.value)} />
+                          </div>
+                          <div className="field">
+                            <label>项目链接</label>
+                            <input className="ghost-input" value={editing.url || ""} placeholder="https://..." onChange={(e) => set("url", e.target.value)} />
+                          </div>
+                        </div>
+                      </section>
+                    )}
+                  </div>
                 </div>
-                <textarea
-                  className="article-textarea article-textarea--workbench"
-                  value={editing.body}
-                  placeholder={"# \n\n从这里开始写作..."}
-                  onChange={(e) => set("body", e.target.value)}
-                />
-              </section>
-
-              <div className="editor-support-grid">
-                <details className="editor-fold" open>
-                  <summary>基础信息</summary>
-                  <div className="editor-fields editor-fields--two">
-                    <div className="field">
-                      <label>文章摘要</label>
-                      <textarea
-                        className="ghost-input meta-summary"
-                        value={editing.description}
-                        placeholder="用于开放页描述与列表摘要"
-                        onChange={(e) => set("description", e.target.value)}
-                      />
-                    </div>
-                    <div className="field">
-                      <label>封面图</label>
-                      <input
-                        className="ghost-input"
-                        value={editing.cover || ""}
-                        placeholder="https://..."
-                        onChange={(e) => set("cover", e.target.value)}
-                      />
-                    </div>
-                    <div className="field editor-fields-span-2">
-                      <label>标签</label>
-                      <input
-                        className="ghost-input"
-                        value={normalizeTags(editing.tags).join(", ")}
-                        placeholder="使用逗号分隔，例如：写作, 设计"
-                        onChange={(e) => set("tags", e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </details>
-
-                <details className="editor-fold" open>
-                  <summary>阅读前预览</summary>
-                  <div className="editor-fields">
-                    <div className="field">
-                      <label>右侧预览摘要</label>
-                      <textarea
-                        className="ghost-input meta-summary"
-                        value={editing.summary || ""}
-                        placeholder="留空时会优先使用文章摘要，再回退到正文首段"
-                        onChange={(e) => set("summary", e.target.value)}
-                      />
-                    </div>
-                    <div className="field">
-                      <label>{editing.kind === "project" ? "项目亮点" : "作者高亮"}</label>
-                      <textarea
-                        className="ghost-input meta-summary"
-                        value={(editing.kind === "project" ? editing.projectHighlights : editing.highlights)?.join("\n") || ""}
-                        placeholder="每行一条，最多 3 条"
-                        onChange={(e) =>
-                          editing.kind === "project"
-                            ? set("projectHighlights", splitLines(e.target.value))
-                            : set("highlights", splitLines(e.target.value))
-                        }
-                      />
-                    </div>
-                    <div className="field">
-                      <label>语境备注</label>
-                      <textarea
-                        className="ghost-input meta-summary"
-                        value={editing.contextNote || ""}
-                        placeholder="补充这篇内容的背景、约束或写作缘由"
-                        onChange={(e) => set("contextNote", e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </details>
-
-                {editing.kind === "project" && (
-                  <details className="editor-fold" open>
-                    <summary>作品信息</summary>
-                    <div className="editor-fields editor-fields--three">
-                      <div className="field">
-                        <label>年份</label>
-                        <input className="ghost-input" value={editing.year || ""} placeholder="2026" onChange={(e) => set("year", e.target.value)} />
-                      </div>
-                      <div className="field">
-                        <label>角色</label>
-                        <input className="ghost-input" value={editing.role || ""} placeholder="设计 / 开发 / 写作" onChange={(e) => set("role", e.target.value)} />
-                      </div>
-                      <div className="field">
-                        <label>项目链接</label>
-                        <input className="ghost-input" value={editing.url || ""} placeholder="https://..." onChange={(e) => set("url", e.target.value)} />
-                      </div>
-                    </div>
-                  </details>
-                )}
-              </div>
+              </aside>
             </section>
 
             <section className="panel compact-panel">

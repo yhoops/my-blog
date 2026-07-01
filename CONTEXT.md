@@ -52,6 +52,26 @@ _Avoid_: independent rail visibility, one-sided reveal, permanent reading clutte
 The admin content page where the author writes and prepares a writing or work page. Its primary surface is the main body editor; metadata, cover, context fields, and media controls are supporting editorial surfaces.
 _Avoid_: form page, metadata dashboard, narrow editor
 
+**Inspector Rail**:
+A collapsible right-side editorial inspection surface inside the Writing Workbench. It stays adjacent to the main body editor so the author can review and adjust support fields without dropping below the writing flow.
+_Avoid_: bottom form stack, equal-weight field pile, detached metadata area
+
+**Inspector Group**:
+A focused section inside the Inspector Rail where only one editorial concern is expanded at a time. It keeps supporting fields grouped by intent instead of exposing the entire form stack at once.
+_Avoid_: always-open long rail, all-fields-at-once panel, flat field wall
+
+**Preview-First Inspection**:
+The default inspection order in the Writing Workbench where the preview-oriented Inspector Group is shown before other support groups. It keeps publishing judgment closer to the writing flow than generic metadata editing.
+_Avoid_: metadata-first default, hidden preview fields, publish-blind editing
+
+**Stable Inspector Width**:
+The desktop Writing Workbench layout where the Inspector Rail keeps a fixed presence beside the main body editor instead of appearing as a temporary overlay drawer. It preserves a stable reading and editing rhythm while the author moves between writing and inspection.
+_Avoid_: overlay drawer, shifting editor width, temporary side panel
+
+**Responsive Inspector Fallback**:
+The narrow-screen Writing Workbench behavior where the Inspector Rail yields back to a bottom collapsible support area once a stable side inspection width no longer fits. The side rail is the primary desktop pattern; the bottom stack is only the responsive fallback.
+_Avoid_: mobile fixed side rail, one-layout-everywhere, desktop-first bottom stack
+
 **Publish Preview**:
 A same-page preview state in the Writing Workbench that presents the current draft as a realistic public page before publishing. It supports returning to editing and publishing from the preview without opening a separate browser window.
 _Avoid_: popup preview, external tab, raw markdown preview
