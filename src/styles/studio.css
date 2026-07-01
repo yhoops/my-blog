@@ -640,11 +640,17 @@ input[type="color"] {
   align-items: center;
   gap: 0.45rem;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .exception-row-head .btn {
   flex: 0 0 auto;
   padding: 0.3rem 0.65rem;
   font-size: 0.74rem;
+}
+.exception-row-head .btn-primary {
+  border-color: color-mix(in srgb, var(--s-accent) 82%, var(--s-text) 18%);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--s-accent) 16%, transparent);
 }
 .exception-row strong {
   font-size: 0.8rem;
